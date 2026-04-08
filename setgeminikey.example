@@ -1,0 +1,4 @@
+#!/bin/bash
+# Get your key from https://console.cloud.google.com/apis/credentials or
+# https://aistudio.google.com/api-keys
+export GEMINI_API_KEY="Your API Key Goes Here"

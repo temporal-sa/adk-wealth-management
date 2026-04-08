@@ -1,0 +1,29 @@
+[project]
+name = "adk-wealth-management"
+version = "0.1.0"
+description = "Google ADK Wealth Management Demo"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "google-adk>=1.0.0",
+    "pydantic>=2.11.7",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.35.0",
+    "redis>=6.2.0",
+    "aiohttp>=3.12.0",
+    "temporalio>=1.10.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+adk-supervisor = "adk_supervisor.main:main"
+
+[tool.uv]
+package = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/adk_supervisor", "src/common", "src/temporal_supervisor", "src/api"]
