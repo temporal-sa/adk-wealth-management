@@ -56,10 +56,7 @@ class OpenAccount:
     @staticmethod
     async def _get_workflow_handle(workflow_id: str) -> WorkflowHandle:
         client_helper = ClientHelper()
-        the_client = await Client.connect(
-            target_host=client_helper.address,
-            namespace=client_helper.namespace,
-        )
+        the_client = await Client.connect(**client_helper.client_config)
         return the_client.get_workflow_handle_for(
             OpenInvestmentAccountWorkflow.run, workflow_id
         )
