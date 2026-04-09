@@ -19,14 +19,13 @@ with workflow.unsafe.imports_passed_through():
     from temporal_supervisor.activities.beneficiaries import Beneficiaries, Beneficiary
     from temporal_supervisor.activities.investments import Investments
     from temporal_supervisor.activities.open_account import OpenAccount, open_new_investment_account
-    from common.investment_manager import InvestmentAccount
     from google.adk.agents import LlmAgent
     from google.adk.events import Event
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
     from google.genai import types
     from temporalio.contrib.google_adk_agents import TemporalModel
-    from temporalio.contrib.google_adk_agents.workflow import activity_tool
+    from temporal_supervisor.activities.activity_tool import _activity_tool
 
 
 MODEL = "gemini-2.5-flash"
@@ -36,10 +35,10 @@ APP_NAME = "wealth-management"
 # ---------------------------------------------------------------------------
 # ADK tool wrappers
 #
-# Google ADK's automatic function-declaration builder requires flat primitive
-# signatures. Temporal activities use structured dataclass inputs as best
-# practice. These thin wrappers bridge the two: ADK sees simple primitives,
-# the underlying activities receive proper typed dataclasses.
+# activity_tool() (from temporal_supervisor.activity_tool) handles most
+# activities automatically. Manual wrappers are only needed when:
+#   - The activity takes a dataclass arg (ADK can't generate a schema for it)
+#   - The tool needs custom pre-processing before calling the activity
 # ---------------------------------------------------------------------------
 
 async def add_beneficiary(client_id: str, first_name: str, last_name: str, relationship: str) -> None:
@@ -54,24 +53,6 @@ async def add_beneficiary(client_id: str, first_name: str, last_name: str, relat
     await workflow.execute_activity(
         Beneficiaries.add_beneficiary,
         Beneficiary(client_id=client_id, first_name=first_name, last_name=last_name, relationship=relationship),
-        start_to_close_timeout=timedelta(seconds=30),
-    )
-
-
-async def delete_beneficiary(client_id: str, beneficiary_id: str) -> None:
-    # No docstring: keeps the ADK tool schema identical to activity_tool(Beneficiaries.delete_beneficiary).
-    await workflow.execute_activity(
-        Beneficiaries.delete_beneficiary,
-        args=[client_id, beneficiary_id],
-        start_to_close_timeout=timedelta(seconds=30),
-    )
-
-
-async def close_investment(client_id: str, investment_id: str) -> None:
-    # No docstring: keeps the ADK tool schema identical to activity_tool(Investments.close_investment).
-    await workflow.execute_activity(
-        Investments.close_investment,
-        args=[client_id, investment_id],
         start_to_close_timeout=timedelta(seconds=30),
     )
 
@@ -127,11 +108,11 @@ def init_agents() -> LlmAgent:
         instruction=OPEN_ACCOUNT_INSTRUCTIONS,
         tools=[
             open_new_investment_account,
-            activity_tool(
+            _activity_tool(
                 OpenAccount.get_current_client_info,
                 start_to_close_timeout=timedelta(seconds=30),
             ),
-            activity_tool(
+            _activity_tool(
                 OpenAccount.approve_kyc,
                 start_to_close_timeout=timedelta(seconds=30),
             ),
@@ -145,11 +126,14 @@ def init_agents() -> LlmAgent:
         description=INVEST_HANDOFF,
         instruction=INVEST_INSTRUCTIONS,
         tools=[
-            activity_tool(
+            _activity_tool(
                 Investments.list_investments,
                 start_to_close_timeout=timedelta(seconds=30),
             ),
-            close_investment,  # wrapper: 2 flat args → activity
+            _activity_tool(
+                Investments.close_investment,
+                start_to_close_timeout=timedelta(seconds=30),
+            ),
         ],
         sub_agents=[open_account_agent],
     )
@@ -160,12 +144,15 @@ def init_agents() -> LlmAgent:
         description=BENE_HANDOFF,
         instruction=BENE_INSTRUCTIONS,
         tools=[
-            activity_tool(
+            _activity_tool(
                 Beneficiaries.list_beneficiaries,
                 start_to_close_timeout=timedelta(seconds=30),
             ),
             add_beneficiary,  # wrapper: flat args → Beneficiary dataclass → activity
-            delete_beneficiary,  # wrapper: 2 flat args → activity
+            _activity_tool(
+                Beneficiaries.delete_beneficiary,
+                start_to_close_timeout=timedelta(seconds=30),
+            ),
         ],
     )
 

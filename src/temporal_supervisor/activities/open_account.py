@@ -5,6 +5,8 @@ from temporalio.client import WorkflowHandle, Client
 from temporalio.workflow import ParentClosePolicy
 from temporalio.common import RetryPolicy
 
+from temporal_supervisor.claim_check.claim_check_plugin import ClaimCheckPlugin
+
 with workflow.unsafe.imports_passed_through():
     from common.client_helper import ClientHelper
     from temporal_supervisor.workflows.open_account_workflow import (
@@ -56,7 +58,8 @@ class OpenAccount:
     @staticmethod
     async def _get_workflow_handle(workflow_id: str) -> WorkflowHandle:
         client_helper = ClientHelper()
-        the_client = await Client.connect(**client_helper.client_config)
+        the_client = await Client.connect(**client_helper.client_config,
+                                          plugins=[ClaimCheckPlugin()])
         return the_client.get_workflow_handle_for(
             OpenInvestmentAccountWorkflow.run, workflow_id
         )
