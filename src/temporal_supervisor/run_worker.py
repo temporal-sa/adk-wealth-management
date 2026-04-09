@@ -6,6 +6,7 @@ from temporalio.worker import Worker
 from temporalio.contrib.google_adk_agents import GoogleAdkPlugin
 
 from common.client_helper import ClientHelper
+from temporal_supervisor.claim_check.claim_check_plugin import ClaimCheckPlugin
 from temporal_supervisor.activities.clients import ClientActivities
 from temporal_supervisor.activities.event_stream_activities import EventStreamActivities
 from temporal_supervisor.activities.open_account import OpenAccount
@@ -23,10 +24,15 @@ async def main():
 
     client_helper = ClientHelper()
 
-    plugins = [] if client_helper.skipADKPlugin else [GoogleAdkPlugin()]
+    plugins = [ ClaimCheckPlugin() ] if client_helper.skipADKPlugin else \
+        [ GoogleAdkPlugin(),
+          ClaimCheckPlugin()
+        ]
+
+    print(f"address is {client_helper.address} and plugins are {plugins}")
 
     client = await Client.connect(**client_helper.client_config,
-        plugins=plugins,
+        plugins=plugins
     )
 
     worker = Worker(

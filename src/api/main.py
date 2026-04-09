@@ -12,6 +12,7 @@ from temporalio.service import RPCError
 from common.event_stream_manager import EventStreamManager
 from common.client_helper import ClientHelper
 from common.user_message import ProcessUserMessageInput
+from temporal_supervisor.claim_check.claim_check_plugin import ClaimCheckPlugin
 from temporal_supervisor.workflows.supervisor_workflow import WealthManagementWorkflow
 
 temporal_client: Optional[Client] = None
@@ -24,8 +25,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     global task_queue
     client_helper = ClientHelper()
     task_queue = client_helper.taskQueue
-    temporal_client = await Client.connect(**client_helper.client_config,
-        plugins=[GoogleAdkPlugin()]
+    temporal_client = await Client.connect(
+        **client_helper.client_config,
+        plugins=[
+            GoogleAdkPlugin(),
+            ClaimCheckPlugin(),
+        ]
     )
     yield
     print("API is shutting down...")
