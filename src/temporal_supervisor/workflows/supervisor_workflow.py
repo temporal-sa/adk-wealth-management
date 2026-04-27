@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.workflow import ActivityConfig
 
 from common.user_message import ProcessUserMessageInput, ChatInteraction
 from common.status_update import StatusUpdate
@@ -99,11 +100,10 @@ async def update_client_details(
 
 def init_agents() -> LlmAgent:
     """Initialize ADK agents and return the root supervisor agent."""
-    temporal_model = TemporalModel(MODEL)
 
     open_account_agent = LlmAgent(
         name=OPEN_ACCOUNT_AGENT_NAME.replace(" ", "_"),
-        model=temporal_model,
+        model=TemporalModel(MODEL, activity_config=ActivityConfig(summary="Open Account Agent")),
         description=OPEN_ACCOUNT_HANDOFF,
         instruction=OPEN_ACCOUNT_INSTRUCTIONS,
         tools=[
@@ -122,7 +122,7 @@ def init_agents() -> LlmAgent:
 
     investment_agent = LlmAgent(
         name=INVEST_AGENT_NAME.replace(" ", "_"),
-        model=temporal_model,
+        model=TemporalModel(MODEL, activity_config=ActivityConfig(summary="Investment Agent")),
         description=INVEST_HANDOFF,
         instruction=INVEST_INSTRUCTIONS,
         tools=[
@@ -140,7 +140,7 @@ def init_agents() -> LlmAgent:
 
     beneficiary_agent = LlmAgent(
         name=BENE_AGENT_NAME.replace(" ", "_"),
-        model=temporal_model,
+        model=TemporalModel(MODEL, activity_config=ActivityConfig(summary="Beneficiary Agent")),
         description=BENE_HANDOFF,
         instruction=BENE_INSTRUCTIONS,
         tools=[
@@ -158,7 +158,7 @@ def init_agents() -> LlmAgent:
 
     supervisor_agent = LlmAgent(
         name=SUPERVISOR_AGENT_NAME.replace(" ", "_"),
-        model=temporal_model,
+        model=TemporalModel(MODEL, activity_config=ActivityConfig(summary="Supervisor Agent")),
         description=SUPERVISOR_HANDOFF,
         instruction=SUPERVISOR_INSTRUCTIONS,
         sub_agents=[beneficiary_agent, investment_agent],
