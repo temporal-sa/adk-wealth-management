@@ -103,7 +103,7 @@ def init_agents() -> LlmAgent:
 
     open_account_agent = LlmAgent(
         name=OPEN_ACCOUNT_AGENT_NAME.replace(" ", "_"),
-        model=TemporalModel(MODEL, activity_config=ActivityConfig(summary="Open Account Agent")),
+        model=TemporalModel(MODEL, activity_config=ActivityConfig(summary=OPEN_ACCOUNT_AGENT_NAME)),
         description=OPEN_ACCOUNT_HANDOFF,
         instruction=OPEN_ACCOUNT_INSTRUCTIONS,
         tools=[
@@ -122,7 +122,7 @@ def init_agents() -> LlmAgent:
 
     investment_agent = LlmAgent(
         name=INVEST_AGENT_NAME.replace(" ", "_"),
-        model=TemporalModel(MODEL, activity_config=ActivityConfig(summary="Investment Agent")),
+        model=TemporalModel(MODEL, activity_config=ActivityConfig(summary=INVEST_AGENT_NAME)),
         description=INVEST_HANDOFF,
         instruction=INVEST_INSTRUCTIONS,
         tools=[
@@ -140,7 +140,7 @@ def init_agents() -> LlmAgent:
 
     beneficiary_agent = LlmAgent(
         name=BENE_AGENT_NAME.replace(" ", "_"),
-        model=TemporalModel(MODEL, activity_config=ActivityConfig(summary="Beneficiary Agent")),
+        model=TemporalModel(MODEL, activity_config=ActivityConfig(summary=BENE_AGENT_NAME)),
         description=BENE_HANDOFF,
         instruction=BENE_INSTRUCTIONS,
         tools=[
@@ -158,7 +158,7 @@ def init_agents() -> LlmAgent:
 
     supervisor_agent = LlmAgent(
         name=SUPERVISOR_AGENT_NAME.replace(" ", "_"),
-        model=TemporalModel(MODEL, activity_config=ActivityConfig(summary="Supervisor Agent")),
+        model=TemporalModel(MODEL, activity_config=ActivityConfig(summary=SUPERVISOR_AGENT_NAME)),
         description=SUPERVISOR_HANDOFF,
         instruction=SUPERVISOR_INSTRUCTIONS,
         sub_agents=[beneficiary_agent, investment_agent],
