@@ -41,11 +41,21 @@ uv sync
 ```
 
 ## Set up your Gemini API Key
+
+Here are the steps to create a new Gemini key. 
+
+1. Create a New GCP Project (skip if you already have one)
+2. Enable the Gemin API in this project
+3. Open [AI Studio](aistudio.google.com)
+4. Import or select the GCP Project
+5. Create the API key
+
+
 Execute this in the project root (not this folder -- up two levels)
 
 ```bash
 cp setgeminikey.example setgeminikey.sh
-chmod +x setoaikey.sh
+chmod +x setgeminikey.sh
 ```
 
 Now edit the setgeminikey.sh file and paste in your Gemini API Key.
@@ -145,27 +155,31 @@ If you remove the codec server settings, you won't be able to see anything other
 
 ![](../../images/encoded-input.png)
 
-## Running the Demo Locally
+## Running the Demo 
+
+You have the option of running the demo [locally](#locally) or on [Temporal Cloud](#temporal-cloud). 
+
+### Locally
 Start Temporal Locally.
 
 ```bash
 temporal server start-dev
 ```
 
-### Start the Worker
+#### Start the Worker
 
 ```bash
 cd src/temporal_supervisor
 ./startlocalworker.sh
 ```
 
-### Start the API
+#### Start the API
 
 ```bash
 cd src/api
 ./startlocalapi.sh
 ```
-### Start the UX
+#### Start the UX
 
 ```bash
 cd src/frontend
@@ -175,13 +189,13 @@ npm start
 A new browser window opens where you can interact with the application. 
 
 If you are opening a new investment account, in another terminal
-### Send the Compliance Reviewed Signal 
+#### Send the Compliance Reviewed Signal 
 ```bash
 cd src/temporal_supervisor
 ./localsendcomplianceapproval.sh <Child Workflow ID>
 ```
 
-## Running the Demo in Temporal Cloud
+### Temporal Cloud
 
 Copy the setcloudenv.example, located in the src/temporal_supervisor folder to the project root and name it setcloudenv.sh .
 
@@ -197,19 +211,19 @@ export TEMPORAL_TLS_CLIENT_CERT_PATH="/path/to/cert.pem"
 export TEMPORAL_TLS_CLIENT_KEY_PATH="/path/to/key.key"
 ```
 
-### Start the Worker
+#### Start the Worker
 ```bash
 cd src/temporal_supervisor
 ./startcloudworker.sh
 ```
 
-### Start the API
+#### Start the API
 
 ```bash
 cd src/api
 ./startcloudapi.sh
 ```
-### Start the UX
+#### Start the UX
 
 ```bash
 cd src/frontend
@@ -217,7 +231,7 @@ npm start
 ```
 
 If you are opening a new investment account, in another terminal
-### Send the Compliance Reviewed Signal 
+#### Send the Compliance Reviewed Signal 
 ```bash
 cd src/temporal_supervisor
 ./cloudsendcomplianceapproval.sh <Child Workflow ID>
