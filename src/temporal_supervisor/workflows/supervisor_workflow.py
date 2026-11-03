@@ -31,6 +31,10 @@ with workflow.unsafe.imports_passed_through():
 
 MODEL = "gemini-2.5-flash"
 APP_NAME = "wealth-management"
+CLIENT_ID_STATE_KEY = "client_id"
+# Sent when the model ends a turn with no text and no tool call, which Gemini occasionally does
+EMPTY_RESPONSE_NUDGE = "Please continue, following your instructions."
+EMPTY_RESPONSE_FALLBACK = "Sorry, I didn't catch that. Could you please say it again?"
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +102,18 @@ async def update_client_details(
     )
 
 
+def remember_client_id(tool, args: dict, tool_context) -> None:
+    """before_tool_callback: save the client ID in session state the first time a tool receives it.
+
+    Every agent's instructions read it back through the {client_id?} placeholder, so the
+    customer is asked for it once, no matter how many agent handoffs follow.
+    """
+    client_id = args.get("client_id")
+    if client_id and tool_context.state.get(CLIENT_ID_STATE_KEY) != client_id:
+        tool_context.state[CLIENT_ID_STATE_KEY] = client_id
+    return None
+
+
 def init_agents() -> LlmAgent:
     """Initialize ADK agents and return the root supervisor agent."""
 
@@ -106,6 +122,7 @@ def init_agents() -> LlmAgent:
         model=TemporalModel(MODEL, activity_config=ActivityConfig(summary=OPEN_ACCOUNT_AGENT_NAME)),
         description=OPEN_ACCOUNT_HANDOFF,
         instruction=OPEN_ACCOUNT_INSTRUCTIONS,
+        before_tool_callback=remember_client_id,
         tools=[
             open_new_investment_account,
             _activity_tool(
@@ -125,6 +142,7 @@ def init_agents() -> LlmAgent:
         model=TemporalModel(MODEL, activity_config=ActivityConfig(summary=INVEST_AGENT_NAME)),
         description=INVEST_HANDOFF,
         instruction=INVEST_INSTRUCTIONS,
+        before_tool_callback=remember_client_id,
         tools=[
             _activity_tool(
                 Investments.list_investments,
@@ -143,6 +161,7 @@ def init_agents() -> LlmAgent:
         model=TemporalModel(MODEL, activity_config=ActivityConfig(summary=BENE_AGENT_NAME)),
         description=BENE_HANDOFF,
         instruction=BENE_INSTRUCTIONS,
+        before_tool_callback=remember_client_id,
         tools=[
             _activity_tool(
                 Beneficiaries.list_beneficiaries,
@@ -161,6 +180,7 @@ def init_agents() -> LlmAgent:
         model=TemporalModel(MODEL, activity_config=ActivityConfig(summary=SUPERVISOR_AGENT_NAME)),
         description=SUPERVISOR_HANDOFF,
         instruction=SUPERVISOR_INSTRUCTIONS,
+        before_tool_callback=remember_client_id,
         sub_agents=[beneficiary_agent, investment_agent],
     )
 
@@ -288,6 +308,37 @@ class WealthManagementWorkflow:
                     workflow.logger.warning(f"Failed to restore session event: {exc}")
             workflow.logger.info(f"[session-debug] restored {len(session.events)} events")
 
+        text_response, agent_trace, json_response = await self._run_agents(message)
+        if not text_response:
+            # The model ended the turn without saying anything. Nudge it once, then fall back
+            # to a canned reply rather than showing the customer an empty message.
+            workflow.logger.warning("[empty-response] model returned no text; nudging once")
+            text_response, retry_trace, retry_json = await self._run_agents(EMPTY_RESPONSE_NUDGE)
+            agent_trace += retry_trace
+            json_response += retry_json
+            if not text_response:
+                workflow.logger.warning("[empty-response] still no text after nudge; using fallback")
+                text_response = EMPTY_RESPONSE_FALLBACK
+
+        # Persist session events so they survive the next Temporal replay.
+        session_after = await self._session_service.get_session(
+            app_name=APP_NAME, user_id=self._user_id, session_id=self._session_id
+        )
+        if session_after and session_after.events:
+            try:
+                self._session_events_data = [
+                    e.model_dump(mode="json") for e in session_after.events
+                ]
+                workflow.logger.info(f"[session-debug] saved {len(self._session_events_data)} session events")
+            except Exception as exc:
+                workflow.logger.warning(f"Failed to serialize session events: {exc}")
+
+        chat_interaction.text_response = text_response
+        chat_interaction.json_response = json_response
+        chat_interaction.agent_trace = agent_trace
+
+    async def _run_agents(self, message: str) -> tuple[str, str, str]:
+        """Run one turn of the agents. Returns (text_response, agent_trace, json_response)."""
         new_message = types.Content(
             role="user",
             parts=[types.Part(text=message)],
@@ -338,23 +389,7 @@ class WealthManagementWorkflow:
             f"[session-debug] run_async done: text_response='{text_response[:80]}' "
             f"agent_trace='{agent_trace[:80]}'"
         )
-
-        # Persist session events so they survive the next Temporal replay.
-        session_after = await self._session_service.get_session(
-            app_name=APP_NAME, user_id=self._user_id, session_id=self._session_id
-        )
-        if session_after and session_after.events:
-            try:
-                self._session_events_data = [
-                    e.model_dump(mode="json") for e in session_after.events
-                ]
-                workflow.logger.info(f"[session-debug] saved {len(self._session_events_data)} session events")
-            except Exception as exc:
-                workflow.logger.warning(f"Failed to serialize session events: {exc}")
-
-        chat_interaction.text_response = text_response
-        chat_interaction.json_response = json_response
-        chat_interaction.agent_trace = agent_trace
+        return text_response, agent_trace, json_response
 
     @workflow.query
     def get_chat_history(self) -> list[ChatInteraction]:
