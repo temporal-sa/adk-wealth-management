@@ -51,3 +51,10 @@ export GEMINI_API_KEY="Your API Key Goes Here"
 See the Gemini ADK Version [here](src/adk_supervisor/README.md)
 And the Temporal version of this example is located [here](src/temporal_supervisor/README.md)
 To run the Open Account workflow in Java, see [here](java/README.md)
+
+## Running the Tests
+
+```bash
+uv run pytest           # Python: runs the supervisor workflow with a scripted model (no Gemini key or Redis needed)
+cd java && ./gradlew test   # Java: the Open Account workflow
+```

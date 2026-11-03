@@ -25,5 +25,18 @@ package = true
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/adk_supervisor", "src/common", "src/temporal_supervisor", "src/api"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "module"
+asyncio_default_test_loop_scope = "module"
+testpaths = ["tests"]
+pythonpath = ["src", "."]
