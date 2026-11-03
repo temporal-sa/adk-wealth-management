@@ -136,6 +136,67 @@ async def get_account_opening_status(workflow_id: str) -> str:
     return state
 
 
+# Fields that must appear in the agent's reply for the client details to count as shown
+KYC_DISPLAYED_FIELDS = ("first_name", "last_name", "email")
+
+
+async def get_current_client_info(workflow_id: str) -> dict:
+    """Retrieve the customer's current details for an account opening, to show them for KYC.
+
+    Args:
+        workflow_id: The workflow ID returned by open_new_investment_account.
+
+    Returns:
+        The customer's current details. Show all of them to the customer and ask whether they are correct.
+    """
+    details = await workflow.execute_activity(
+        OpenAccount.get_current_client_info,
+        workflow_id,
+        start_to_close_timeout=timedelta(seconds=30),
+        retry_policy=TOOL_RETRY_POLICY,
+    )
+    workflow.instance().kyc_details_fetched[workflow_id] = details
+    return details
+
+
+async def approve_kyc(workflow_id: str) -> str:
+    """Approve KYC for an account opening, after the customer confirmed their details are correct.
+
+    Args:
+        workflow_id: The workflow ID returned by open_new_investment_account.
+
+    Returns:
+        Whether KYC was approved and, if not, what to do first.
+    """
+    # The model sometimes approves KYC without showing the customer their details, or
+    # treats a confirmation for an earlier account opening as approval for a new one.
+    # Only approve once this opening's details were shown in a reply and the customer
+    # has answered since.
+    wf = workflow.instance()
+    shown_turn = wf.kyc_details_shown_turn.get(workflow_id)
+    if shown_turn is None or shown_turn >= wf.turn:
+        return (
+            "KYC was not approved. First show the customer all of their current details for this "
+            "account opening (get_current_client_info) and ask whether they are correct. Approve KYC "
+            "only after the customer confirms in their next message."
+        )
+    await workflow.execute_activity(
+        OpenAccount.approve_kyc,
+        workflow_id,
+        start_to_close_timeout=timedelta(seconds=30),
+        retry_policy=TOOL_RETRY_POLICY,
+    )
+    return "KYC approved. The account is now waiting for compliance review."
+
+
+def _details_displayed(details: dict | None, reply: str) -> bool:
+    if not details:
+        return False
+    reply = reply.lower()
+    values = [str(details.get(field) or "") for field in KYC_DISPLAYED_FIELDS]
+    return all(value.lower() in reply for value in values if value)
+
+
 def _model(agent_name: str) -> TemporalModel:
     """Gemini, called in an activity on the LLM task queue, retried until the model responds."""
     return TemporalModel(
@@ -160,16 +221,8 @@ def init_agents() -> LlmAgent:
         tools=[
             open_new_investment_account,
             get_account_opening_status,
-            _activity_tool(
-                OpenAccount.get_current_client_info,
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=TOOL_RETRY_POLICY,
-            ),
-            _activity_tool(
-                OpenAccount.approve_kyc,
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=TOOL_RETRY_POLICY,
-            ),
+            get_current_client_info,  # wrapper: records the details for the KYC guard
+            approve_kyc,  # wrapper: KYC guard
             update_client_details,  # wrapper: flat optional args → dict → activity
         ],
     )
@@ -238,6 +291,12 @@ class WealthManagementWorkflow:
         # Latest state reported by each open-account child workflow, keyed by its workflow ID.
         # Read by the get_account_opening_status tool.
         self.account_opening_states: dict[str, str] = {}
+        # KYC guard (see approve_kyc): the number of the customer message being handled, the
+        # client details fetched for each account opening this turn, and the turn in which
+        # they were shown to the customer, keyed by the opening's workflow ID.
+        self.turn = 0
+        self.kyc_details_fetched: dict[str, dict] = {}
+        self.kyc_details_shown_turn: dict[str, int] = {}
         self.end_workflow_flag = False
         self.sched_to_close_timeout = timedelta(seconds=5)
         self.retry_policy = RetryPolicy(
@@ -319,6 +378,8 @@ class WealthManagementWorkflow:
                 workflow.continue_as_new(args=[self.account_opening_states, client_id])
 
     async def _process_chat_message(self, message: str):
+        self.turn += 1
+        self.kyc_details_fetched = {}
         chat_interaction = ChatInteraction(user_prompt=message, text_response="")
         await self._process_user_message(chat_interaction, message)
         self.chat_history.append(chat_interaction)
@@ -389,6 +450,11 @@ class WealthManagementWorkflow:
                 workflow.logger.info(f"[session-debug] saved {len(self._session_events_data)} session events")
             except Exception as exc:
                 workflow.logger.warning(f"Failed to serialize session events: {exc}")
+
+        # Details only count as shown if the reply the customer sees actually contains them
+        for opening_id, details in self.kyc_details_fetched.items():
+            if _details_displayed(details, text_response):
+                self.kyc_details_shown_turn[opening_id] = self.turn
 
         chat_interaction.text_response = text_response
         chat_interaction.json_response = json_response

@@ -12,88 +12,22 @@ Requires the Temporal dev server (downloaded automatically on first run).
 No GEMINI_API_KEY or Redis needed.
 """
 
-import asyncio
-import uuid
-
 import pytest
-from temporalio import activity
-from temporalio.client import Client, WorkflowHandle
-from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import Worker
 
 import tests.scripted_model as model
 from common.account_context import UpdateAccountOpeningStateInput
-from common.user_message import ChatInteraction, ProcessUserMessageInput
-from common.status_update import StatusUpdate
 from temporal_supervisor.workflows.supervisor_workflow import (
     EMPTY_RESPONSE_FALLBACK,
     WealthManagementWorkflow,
 )
-from temporal_supervisor.task_queues import LLM_TASK_QUEUE
+from tests.chat_harness import CLIENT_ID, end_chat, say as say_turn, start_chat
 from tests.scripted_model import empty, text, tool, transfer
 
-TASK_QUEUE = "test-chat-turns"
-CLIENT_ID = "123"
+pytestmark = pytest.mark.usefixtures("scripted")
 
 
-@activity.defn(name="list_beneficiaries")
-async def list_beneficiaries(client_id: str) -> list:
-    return [{"beneficiary_id": "b-1", "first_name": "John", "last_name": "Doe", "relationship": "son"}]
-
-
-@activity.defn(name="append_chat_interaction")
-async def append_chat_interaction(workflow_id: str, chat_interaction: ChatInteraction) -> int:
-    return 1
-
-
-@activity.defn(name="append_status_update")
-async def append_status_update(workflow_id: str, status_update: StatusUpdate) -> int:
-    return 1
-
-
-@activity.defn(name="delete_conversation")
-async def delete_conversation(workflow_id: str) -> bool:
-    return True
-
-
-@pytest.fixture(scope="module")
-async def client():
-    async with await WorkflowEnvironment.start_local() as env:
-        config = env.client.config()
-        config["plugins"] = [model.scripted_plugin()]
-        client = Client(**config)
-        async with Worker(
-            client,
-            task_queue=TASK_QUEUE,
-            workflows=[WealthManagementWorkflow],
-            activities=[list_beneficiaries, append_chat_interaction, append_status_update, delete_conversation],
-        ), Worker(client, task_queue=LLM_TASK_QUEUE):  # model calls; the plugin adds invoke_model
-            yield client
-
-
-@pytest.fixture(autouse=True)
-def reset_model():
-    model.reset()
-    yield
-    assert not model.unused(), f"scripted responses were not used: {model.unused()}"
-
-
-async def start_chat(client: Client) -> WorkflowHandle:
-    return await client.start_workflow(
-        WealthManagementWorkflow.run, id=f"test-chat-{uuid.uuid4()}", task_queue=TASK_QUEUE
-    )
-
-
-async def say(handle: WorkflowHandle, prompt: str) -> str:
-    """Send one chat message and return the reply shown to the customer."""
-    turns = len(await handle.query(WealthManagementWorkflow.get_chat_history))
-    await handle.signal(WealthManagementWorkflow.process_user_message, ProcessUserMessageInput(user_input=prompt))
-    for _ in range(200):
-        history = await handle.query(WealthManagementWorkflow.get_chat_history)
-        if len(history) > turns:
-            return history[-1].text_response
-        await asyncio.sleep(0.05)
-    raise TimeoutError(f"no reply to {prompt!r}")
+async def say(handle, prompt: str) -> str:
+    return (await say_turn(handle, prompt)).text_response
 
 
 def client_id_line(client_id: str) -> str:
@@ -117,8 +51,7 @@ async def test_client_id_is_asked_for_once_and_shared_with_every_agent(client):
     model.expect("Open_Account_Agent", text("Opening the Bike account."))
     await say(handle, "Open Bike with $15,000")
 
-    await handle.signal(WealthManagementWorkflow.end_workflow)
-    await handle.result()
+    await end_chat(handle)
 
     # Before the customer gave the ID, the agents were told it was empty, so they ask for it
     assert client_id_line("") in model.instructions_for("Supervisor_Agent")[0]
@@ -136,8 +69,7 @@ async def test_empty_reply_is_nudged_once(client):
     model.expect("Supervisor_Agent", text("How can I help with your accounts?"))
     assert await say(handle, "Hi") == "How can I help with your accounts?"
 
-    await handle.signal(WealthManagementWorkflow.end_workflow)
-    await handle.result()
+    await end_chat(handle)
 
 
 async def test_repeated_empty_reply_falls_back_to_a_message(client):
@@ -151,8 +83,7 @@ async def test_repeated_empty_reply_falls_back_to_a_message(client):
     model.expect("Supervisor_Agent", text("How can I help with your accounts?"))
     assert await say(handle, "Hello?") == "How can I help with your accounts?"
 
-    await handle.signal(WealthManagementWorkflow.end_workflow)
-    await handle.result()
+    await end_chat(handle)
 
 
 async def test_status_tool_reports_the_state_the_open_account_workflow_signalled(client):
@@ -173,5 +104,4 @@ async def test_status_tool_reports_the_state_the_open_account_workflow_signalled
     history = await handle.query(WealthManagementWorkflow.get_chat_history)
     assert rolled_back in history[-1].json_response
 
-    await handle.signal(WealthManagementWorkflow.end_workflow)
-    await handle.result()
+    await end_chat(handle)
