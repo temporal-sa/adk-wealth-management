@@ -14,6 +14,10 @@ with workflow.unsafe.imports_passed_through():
         OpenInvestmentAccountInput,
     )
 
+# Read once at import, outside the workflow sandbox. The Open Account workflow can run
+# on its own task queue, e.g. in the Java worker (see setsplitworkflows.sh).
+OPEN_ACCOUNT_TASK_QUEUE = ClientHelper().taskQueueOpenAccount
+
 
 async def open_new_investment_account(
     client_id: str,
@@ -44,6 +48,7 @@ async def open_new_investment_account(
         args=[account_input],
         id=child_workflow_id,
         parent_close_policy=ParentClosePolicy.TERMINATE,
+        task_queue=OPEN_ACCOUNT_TASK_QUEUE,
     )
     return child_workflow_id
 

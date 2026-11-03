@@ -211,6 +211,9 @@ export TEMPORAL_TLS_CLIENT_CERT_PATH="/path/to/cert.pem"
 export TEMPORAL_TLS_CLIENT_KEY_PATH="/path/to/key.key"
 ```
 
+To use an API key instead of mTLS, remove the two certificate lines, set `TEMPORAL_API_KEY`, and use the
+API key endpoint (`<region>.<cloud>.api.temporal.io:7233`) as `TEMPORAL_ADDRESS`.
+
 #### Start the Worker
 ```bash
 cd src/temporal_supervisor
@@ -237,3 +240,22 @@ cd src/temporal_supervisor
 ./cloudsendcomplianceapproval.sh <Child Workflow ID>
 ```
 
+## Running the Open Account Workflow in Java (optional)
+
+The Open Account workflow can run in a Java worker while the supervisor (AI) workflow and all
+of the activities stay in Python. Pass the same task queue name to both workers. The Python
+supervisor then starts the Open Account child workflow on that task queue, and the Java worker
+picks it up.
+
+```bash
+cd src/temporal_supervisor
+./startlocalworker.sh OpenAccount     # or ./startcloudworker.sh OpenAccount
+```
+
+```bash
+cd java
+./startlocalworker.sh OpenAccount     # or ./startcloudworker.sh OpenAccount
+```
+
+Without the argument, the Python worker runs the Open Account workflow itself. See
+[java/README.md](../../java/README.md) for details.
