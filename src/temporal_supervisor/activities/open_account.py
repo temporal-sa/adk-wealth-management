@@ -73,6 +73,9 @@ async def open_new_investment_account(
         parent_close_policy=ParentClosePolicy.TERMINATE,
         task_queue=OPEN_ACCOUNT_TASK_QUEUE,
     )
+    # Opening an account with the same name again reuses the workflow ID, so replace the
+    # previous opening's status (e.g. "Rolled back...") until the new one reports in.
+    workflow.instance().account_opening_states[child_workflow_id] = "Initializing"
     return child_workflow_id
 
 

@@ -1,6 +1,8 @@
 """Runs the real WealthManagementWorkflow with the scripted model (see scripted_model.py)
 and stub activities registered under the real activity names, so chat tests need no
 Gemini key, Redis or data files. The fixtures that use it are in conftest.py.
+
+Account openings started by a chat are not run: no worker polls their task queue.
 """
 
 import asyncio
@@ -31,6 +33,16 @@ kyc_approvals: list[str] = []
 @activity.defn(name="list_beneficiaries")
 async def list_beneficiaries(client_id: str) -> list:
     return [{"beneficiary_id": "b-1", "first_name": "John", "last_name": "Doe", "relationship": "son"}]
+
+
+@activity.defn(name="validate_new_account")
+async def validate_new_account(client_id: str, account_name: str, initial_amount: float) -> None:
+    pass
+
+
+@activity.defn(name="find_promotion")
+async def find_promotion(client_id: str) -> None:
+    return None
 
 
 @activity.defn(name="get_current_client_info")
@@ -68,7 +80,7 @@ async def chat_workers(env_client: Client):
         client,
         task_queue=TASK_QUEUE,
         workflows=[WealthManagementWorkflow],
-        activities=[list_beneficiaries, get_current_client_info, approve_kyc,
+        activities=[list_beneficiaries, validate_new_account, find_promotion, get_current_client_info, approve_kyc,
                     append_chat_interaction, append_status_update, delete_conversation],
     ), Worker(client, task_queue=LLM_TASK_QUEUE):  # model calls; the plugin adds invoke_model
         yield client

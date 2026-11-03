@@ -103,5 +103,34 @@ async def test_status_tool_reports_the_state_the_open_account_workflow_signalled
 
     history = await handle.query(WealthManagementWorkflow.get_chat_history)
     assert rolled_back in history[-1].json_response
+    # A finished opening's status tells the agent how to open the account again
+    assert "call open_new_investment_account" in history[-1].json_response
 
     await end_chat(handle)
+
+
+async def test_reopening_an_account_does_not_report_the_previous_openings_status(client):
+    # Opening the same account name again reuses the workflow ID. Until the new opening
+    # reports in, its status must not be the earlier opening's rollback.
+    handle = await start_chat(client)
+    opening_id = f"OpenAccount-{handle.id}-{CLIENT_ID}-Vacation"
+    await handle.signal(
+        WealthManagementWorkflow.update_account_opening_state,
+        UpdateAccountOpeningStateInput(
+            account_name="Vacation", workflow_id=opening_id,
+            state="Rolled back. The account was not opened: The custodian rejected the account registration."),
+    )
+
+    model.expect("Supervisor_Agent", transfer("Investment_Agent"))
+    model.expect("Investment_Agent", transfer("Open_Account_Agent"))
+    model.expect("Open_Account_Agent", tool(
+        "open_new_investment_account", client_id=CLIENT_ID, account_name="Vacation", initial_amount=20000))
+    model.expect("Open_Account_Agent", tool("get_account_opening_status", workflow_id=opening_id))
+    model.expect("Open_Account_Agent", text("Your Vacation account opening has started."))
+    turn = await say_turn(handle, "Open Vacation with $20,000")
+
+    assert opening_id in turn.json_response
+    assert "{'result': 'Initializing'}" in turn.json_response
+    assert "Rolled back" not in turn.json_response
+    await end_chat(handle)
+

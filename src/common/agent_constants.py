@@ -76,6 +76,9 @@ OPEN_ACCOUNT_INSTRUCTIONS = f"""You are a helpful agent. You can use your tools 
     An account opening is finished when its status is "Complete" (the account was opened) or starts with
     "Rolled back" (the account was not opened; explain the reason to the customer). If the customer wants
     to try again after a rollback, start a new account opening.
+    Every request to open an account starts a new account opening with open_new_investment_account,
+    even if an earlier opening with the same account name finished or was rolled back in this conversation.
+    Only check the status of an opening you started for the customer's current request.
     # Routine
     1. {CLIENT_ID_INSTRUCTIONS}
     2. Use the open_new_investment_account tool to begin the process.

@@ -133,6 +133,11 @@ async def get_account_opening_status(workflow_id: str) -> str:
     state = workflow.instance().account_opening_states.get(workflow_id)
     if state is None:
         return f"No account opening with workflow ID {workflow_id} was found in this conversation."
+    if state == "Complete" or state.startswith("Rolled back"):
+        # The model has read a finished opening's status as the answer to a new request
+        # to open the same account, so say what to do in that case.
+        return (f"{state}\nThis account opening is finished. If the customer is asking to open an "
+                "account now, call open_new_investment_account to start a new account opening.")
     return state
 
 
