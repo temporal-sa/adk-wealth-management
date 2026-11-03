@@ -1,0 +1,8 @@
+# mTLS client certificate auth. The start scripts activate this profile when
+# TEMPORAL_TLS_CLIENT_CERT_PATH is set; both paths are then required.
+spring:
+  temporal:
+    connection:
+      mtls:
+        cert-chain-file: ${TEMPORAL_TLS_CLIENT_CERT_PATH}
+        key-file: ${TEMPORAL_TLS_CLIENT_KEY_PATH}

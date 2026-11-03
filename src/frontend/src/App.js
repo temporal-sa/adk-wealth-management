@@ -1,6 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import './App.css';
 import { API_BASE_URL } from './config';
+import ChaosPanel from './ChaosPanel';
+
+const SHOW_CHAOS_KEY = 'showChaosPanel';
+
+function loadShowChaos() {
+  try {
+    return localStorage.getItem(SHOW_CHAOS_KEY) === 'true';
+  } catch (e) {
+    return false;
+  }
+}
 
 function App() {
   const [messages, setMessages] = useState([]);
@@ -10,11 +21,25 @@ function App() {
   const [statusContent, setStatusContent] = useState('');
   const chatWindowRef = useRef(null);
   const eventCountRef = useRef(0);
+  // Polling calls the latest fetchChatHistory through this ref, so the interval
+  // isn't restarted on every render and never calls a stale copy.
+  const fetchChatHistoryRef = useRef(null);
   let [isPolling, setIsPolling] = useState(false);
   const [isWaitingForAIResponse, setIsWaitingForAIResponse] = useState(false);
   const defaultHeaderText = 'Chat session started.';
   const workflow_id_prefix = 'adk-temporal-agent-';
   const [workflow_id, setWorkflowId] = useState('');
+  const [showChaos, setShowChaos] = useState(loadShowChaos);
+
+  const handleToggleChaos = () => {
+    const next = !showChaos;
+    setShowChaos(next);
+    try {
+      localStorage.setItem(SHOW_CHAOS_KEY, String(next));
+    } catch (e) {
+      // Not remembered across reloads; the panel still toggles.
+    }
+  };
 
   useEffect(() => {
     if (chatWindowRef.current) {
@@ -22,7 +47,7 @@ function App() {
     }
   }, [messages]);
 
-  // This useEffect hook manages the polling logic.
+    // This useEffect hook manages the polling logic.
   useEffect(() => {
     let intervalId;
 
@@ -30,7 +55,7 @@ function App() {
       // Define the polling function
       const pollApi = async () => {
         try {
-          await fetchChatHistory(defaultHeaderText)
+           await fetchChatHistoryRef.current(defaultHeaderText)
         } catch (error) {
           console.error('Error polling API:', error);
         }
@@ -110,10 +135,10 @@ function App() {
       // const data =
       await response.json();
       // if (data.response && data.response.length > 0) {
-      // console.log("data coming back is ", data.response[0].text_response)
-      // // nothing to do
-      // // const botMessage = { text: data.response[0].text_response, type: 'bot' };
-      // // setMessages(prev => [...prev, botMessage]);
+      //   console.log("data coming back is ", data.response[0].text_response)
+      //   // nothing to do
+      //   // const botMessage = { text: data.response[0].text_response, type: 'bot' };
+      //   // setMessages(prev => [...prev, botMessage]);
       // }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -139,8 +164,8 @@ function App() {
       setSessionId(null);
       setIsChatActive(false);
     } catch (error) {
-      console.error('Error ending chat session:', error);
-      setIsPolling(false);
+        console.error('Error ending chat session:', error);
+        setIsPolling(false);
     }
   };
 
@@ -173,7 +198,7 @@ function App() {
 
     const newEventCount = currentEventCount + data.length;
     console.log(`Processing ${data.length} new events, eventCount: ${currentEventCount} -> ${newEventCount}`);
-
+    
     eventCountRef.current = newEventCount;
 
     const newMessages = [];
@@ -194,64 +219,74 @@ function App() {
           // No Default
       }
     });
-
+    
     if (receivedBotResponse) {
       setIsWaitingForAIResponse(false);
     }
     if (newMessages.length > 0) {
       setMessages(prev => {
         // Check if first new message is duplicate of last existing message
-        if (prev.length > 0 &&
-            newMessages[0].type === prev[prev.length - 1].type &&
+        if (prev.length > 0 && 
+            newMessages[0].type === prev[prev.length - 1].type && 
             newMessages[0].text === prev[prev.length - 1].text) {
           // Skip the duplicate first message
           return [...prev, ...newMessages.slice(1)];
         }
-
+        
         return [...prev, ...newMessages];
       });
     }
   };
+  fetchChatHistoryRef.current = fetchChatHistory;
 
   return (
-    <div className="App">
-      <div className="header">Wealth Management Chatbot</div>
-      {statusContent && (
-        <div className="status-area">
-          {statusContent}
+    <div className="layout">
+      <div className="App">
+        <div className="header">
+          Wealth Management Chatbot
+          <button className="chaos-toggle" onClick={handleToggleChaos}>
+            {showChaos ? 'Hide chaos' : 'Chaos'}
+          </button>
         </div>
-      )}
-      <div className="chat-window" ref={chatWindowRef}>
-        {messages.map((msg, index) => (
-          <div key={index} className={`message ${msg.type}`}>
-            {msg.text.split('\n').map((line, i) => (
-              <span key={i}>
-                {line}
-                <br />
-              </span>
-            ))}
+        {statusContent && (
+          <div className="status-area">
+            {statusContent}
           </div>
-        ))}
+        )}
+        <div className="chat-window" ref={chatWindowRef}>
+          {messages.map((msg, index) => (
+            <div key={index} className={`message ${msg.type}`}>
+              {msg.text.split('\n').map((line, i) => (
+                    <span key={i}>
+                      {line}
+                      <br />
+                    </span>
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="input-area">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+            placeholder="Type a message..."
+            disabled={!isChatActive}
+          />
+          <button onClick={handleSend} disabled={!isChatActive}>Send</button>
+        </div>
+        <button
+          onClick={handleToggleChatState}
+          className={`end-chat-button ${!isChatActive ? 'start-chat-button' : ''}`}
+        >
+          {isChatActive ? 'End Chat' : 'Start Chat'}
+        </button>
       </div>
-      <div className="input-area">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-          placeholder="Type a message..."
-          disabled={!isChatActive}
-        />
-        <button onClick={handleSend} disabled={!isChatActive}>Send</button>
-      </div>
-      <button
-        onClick={handleToggleChatState}
-        className={`end-chat-button ${!isChatActive ? 'start-chat-button' : ''}`}
-      >
-        {isChatActive ? 'End Chat' : 'Start Chat'}
-      </button>
+      {showChaos && <ChaosPanel />}
     </div>
   );
 }
 
 export default App;
+

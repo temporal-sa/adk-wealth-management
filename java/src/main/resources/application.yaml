@@ -1,0 +1,29 @@
+# Connection settings come from the same TEMPORAL_* variables the Temporal CLI and the Python
+# worker use, so the same build runs against a local dev server or Temporal Cloud with no code
+# change. An API key turns on TLS automatically. For mTLS, also activate the mtls profile
+# (see application-mtls.yaml); the start scripts do this when TEMPORAL_TLS_CLIENT_CERT_PATH is set.
+spring:
+  main:
+    banner-mode: off
+    web-application-type: none
+  application:
+    name: open-account
+  temporal:
+    connection:
+      target: ${TEMPORAL_ADDRESS:localhost:7233}
+      api-key: ${TEMPORAL_API_KEY:}
+    namespace: ${TEMPORAL_NAMESPACE:default}
+    # Only the Open Account workflow runs here. Its activities are implemented in Python and
+    # run on the Supervisor task queue.
+    workers:
+      - task-queue: ${TEMPORAL_TASK_QUEUE_OPEN_ACCOUNT}
+        workflow-classes:
+          - io.temporal.demo.wealthmanagement.workflow.OpenInvestmentAccountWorkflowImpl
+  # Claim check storage, shared with the Python worker (see setclaimcheck.sh)
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+claim-check:
+  enabled: ${USE_CLAIM_CHECK:false}
