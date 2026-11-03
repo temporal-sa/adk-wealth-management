@@ -15,4 +15,7 @@ public class OpenInvestmentAccountInput {
     private String accountName;
     @JsonProperty("initial_amount")
     private double initialAmount;
+    // Set when a promotion is running for the new account (e.g. "WELCOME-BONUS")
+    @JsonProperty("promo_code")
+    private String promoCode;
 }

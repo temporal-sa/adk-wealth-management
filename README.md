@@ -17,6 +17,10 @@ Scenarios currently implemented include
 * List Investments - shows a list of accounts and their current balances
 * Close Investment Account - closes an investment account
 
+The Temporal version also has a **Chaos Panel** that injects failures at runtime (API and LLM outages,
+rate limits, a saga rollback, a bug in workflow code) to show how Temporal handles them. See
+[Failure Scenarios](src/temporal_supervisor/README.md#failure-scenarios-chaos-panel).
+
 You can run through the scenarios with the Temporal version using the web application in `src/frontend`
 (see [Running the Demo](src/temporal_supervisor/README.md#running-the-demo)).
 
@@ -57,4 +61,5 @@ To run the Open Account workflow in Java, see [here](java/README.md)
 ```bash
 uv run pytest           # Python: runs the supervisor workflow with a scripted model (no Gemini key or Redis needed)
 cd java && ./gradlew test   # Java: the Open Account workflow
+cd src/frontend && CI=true npm test   # Frontend: the chat and the chaos panel toggle
 ```

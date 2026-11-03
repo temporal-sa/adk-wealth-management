@@ -3,6 +3,7 @@ from temporalio import activity, workflow
 
 with workflow.unsafe.imports_passed_through():
     from common.beneficiaries_manager import BeneficiariesManager
+    from temporal_supervisor.chaos import core_banking_api
 
 
 @dataclass
@@ -18,6 +19,7 @@ class Beneficiaries:
     @activity.defn
     async def list_beneficiaries(client_id: str) -> list:
         activity.logger.info(f"list_beneficiaries: Listing beneficiaries for {client_id}")
+        await core_banking_api()
         beneficiaries_mgr = BeneficiariesManager()
         return beneficiaries_mgr.list_beneficiaries(client_id)
 
@@ -28,6 +30,7 @@ class Beneficiaries:
             f"add_beneficiary: {new_beneficiary.client_id}, "
             f"{new_beneficiary.first_name}, {new_beneficiary.last_name}"
         )
+        await core_banking_api()
         beneficiaries_mgr = BeneficiariesManager()
         beneficiaries_mgr.add_beneficiary(
             new_beneficiary.client_id,
@@ -40,5 +43,6 @@ class Beneficiaries:
     @activity.defn
     async def delete_beneficiary(client_id: str, beneficiary_id: str):
         activity.logger.info(f"delete_beneficiary: {client_id}, {beneficiary_id}")
+        await core_banking_api()
         beneficiaries_mgr = BeneficiariesManager()
         beneficiaries_mgr.delete_beneficiary(client_id, beneficiary_id)

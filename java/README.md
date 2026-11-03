@@ -8,8 +8,10 @@ How the two sides fit together:
 
 * The Python supervisor starts `OpenInvestmentAccountWorkflow` as a child workflow on the
   `TEMPORAL_TASK_QUEUE_OPEN_ACCOUNT` task queue, which this worker polls.
-* This workflow calls the Python activities (`get_client`, `update_client`, `open_investment`) by name on the
-  Python task queue (`TEMPORAL_TASK_QUEUE`, default `Supervisor`).
+* This workflow calls the Python activities (`get_client`, `update_client`, and the saga steps
+  `open_investment`, `debit_linked_account`, `register_account` with their compensations `remove_investment` and
+  `credit_linked_account`) by name on the Python task queue (`TEMPORAL_TASK_QUEUE`, default `Supervisor`).
+  The chaos panel's flags are read inside those activities, so every failure scenario works with this worker too.
 * It reports progress by signalling `update_account_opening_state` on the parent workflow, as the Python
   version does. Signals are routed by workflow ID, so the different task queue doesn't matter.
 * The workflow type, query, update and signal names match the Python version, so the Python agent tools and
@@ -67,5 +69,6 @@ Keep API keys and certificates out of the repository.
 ./gradlew test
 ```
 
-The workflow test runs against the Temporal test server, with fake Python activities and a test parent
-workflow that records the state signals.
+The workflow tests run against the Temporal test server, with fake Python activities and a test parent
+workflow that records the state signals. They cover the saga (happy path, rollback in reverse order, undoing
+only completed steps, transient retries) and the promo-code bug pausing the workflow.

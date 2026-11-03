@@ -27,6 +27,8 @@ with workflow.unsafe.imports_passed_through():
     from google.genai import types
     from temporalio.contrib.google_adk_agents import TemporalModel
     from temporal_supervisor.activities.activity_tool import _activity_tool
+    from temporal_supervisor.retry_policies import LLM_RETRY_POLICY, TOOL_RETRY_POLICY
+    from temporal_supervisor.task_queues import LLM_TASK_QUEUE
 
 
 MODEL = "gemini-2.5-flash"
@@ -59,6 +61,7 @@ async def add_beneficiary(client_id: str, first_name: str, last_name: str, relat
         Beneficiaries.add_beneficiary,
         Beneficiary(client_id=client_id, first_name=first_name, last_name=last_name, relationship=relationship),
         start_to_close_timeout=timedelta(seconds=30),
+        retry_policy=TOOL_RETRY_POLICY,
     )
 
 
@@ -99,6 +102,7 @@ async def update_client_details(
         OpenAccount.update_client_details,
         args=[workflow_id, client_fields],
         start_to_close_timeout=timedelta(seconds=30),
+        retry_policy=TOOL_RETRY_POLICY,
     )
 
 
@@ -114,24 +118,57 @@ def remember_client_id(tool, args: dict, tool_context) -> None:
     return None
 
 
+async def get_account_opening_status(workflow_id: str) -> str:
+    """Get the current status of an account opening.
+
+    Args:
+        workflow_id: The workflow ID returned by open_new_investment_account.
+
+    Returns:
+        The latest status the account opening reported. "Complete" means the account
+        was opened; a status starting with "Rolled back" means it was not opened.
+        Either way, that account opening is finished.
+    """
+    # Runs in the workflow, so it reads the states the open-account workflows reported
+    state = workflow.instance().account_opening_states.get(workflow_id)
+    if state is None:
+        return f"No account opening with workflow ID {workflow_id} was found in this conversation."
+    return state
+
+
+def _model(agent_name: str) -> TemporalModel:
+    """Gemini, called in an activity on the LLM task queue, retried until the model responds."""
+    return TemporalModel(
+        MODEL,
+        activity_config=ActivityConfig(
+            summary=agent_name,
+            task_queue=LLM_TASK_QUEUE,
+            retry_policy=LLM_RETRY_POLICY,
+        ),
+    )
+
+
 def init_agents() -> LlmAgent:
     """Initialize ADK agents and return the root supervisor agent."""
 
     open_account_agent = LlmAgent(
         name=OPEN_ACCOUNT_AGENT_NAME.replace(" ", "_"),
-        model=TemporalModel(MODEL, activity_config=ActivityConfig(summary=OPEN_ACCOUNT_AGENT_NAME)),
+        model=_model(OPEN_ACCOUNT_AGENT_NAME),
         description=OPEN_ACCOUNT_HANDOFF,
         instruction=OPEN_ACCOUNT_INSTRUCTIONS,
         before_tool_callback=remember_client_id,
         tools=[
             open_new_investment_account,
+            get_account_opening_status,
             _activity_tool(
                 OpenAccount.get_current_client_info,
                 start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=TOOL_RETRY_POLICY,
             ),
             _activity_tool(
                 OpenAccount.approve_kyc,
                 start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=TOOL_RETRY_POLICY,
             ),
             update_client_details,  # wrapper: flat optional args → dict → activity
         ],
@@ -139,7 +176,7 @@ def init_agents() -> LlmAgent:
 
     investment_agent = LlmAgent(
         name=INVEST_AGENT_NAME.replace(" ", "_"),
-        model=TemporalModel(MODEL, activity_config=ActivityConfig(summary=INVEST_AGENT_NAME)),
+        model=_model(INVEST_AGENT_NAME),
         description=INVEST_HANDOFF,
         instruction=INVEST_INSTRUCTIONS,
         before_tool_callback=remember_client_id,
@@ -147,10 +184,12 @@ def init_agents() -> LlmAgent:
             _activity_tool(
                 Investments.list_investments,
                 start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=TOOL_RETRY_POLICY,
             ),
             _activity_tool(
                 Investments.close_investment,
                 start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=TOOL_RETRY_POLICY,
             ),
         ],
         sub_agents=[open_account_agent],
@@ -158,7 +197,7 @@ def init_agents() -> LlmAgent:
 
     beneficiary_agent = LlmAgent(
         name=BENE_AGENT_NAME.replace(" ", "_"),
-        model=TemporalModel(MODEL, activity_config=ActivityConfig(summary=BENE_AGENT_NAME)),
+        model=_model(BENE_AGENT_NAME),
         description=BENE_HANDOFF,
         instruction=BENE_INSTRUCTIONS,
         before_tool_callback=remember_client_id,
@@ -166,18 +205,20 @@ def init_agents() -> LlmAgent:
             _activity_tool(
                 Beneficiaries.list_beneficiaries,
                 start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=TOOL_RETRY_POLICY,
             ),
             add_beneficiary,  # wrapper: flat args → Beneficiary dataclass → activity
             _activity_tool(
                 Beneficiaries.delete_beneficiary,
                 start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=TOOL_RETRY_POLICY,
             ),
         ],
     )
 
     supervisor_agent = LlmAgent(
         name=SUPERVISOR_AGENT_NAME.replace(" ", "_"),
-        model=TemporalModel(MODEL, activity_config=ActivityConfig(summary=SUPERVISOR_AGENT_NAME)),
+        model=_model(SUPERVISOR_AGENT_NAME),
         description=SUPERVISOR_HANDOFF,
         instruction=SUPERVISOR_INSTRUCTIONS,
         before_tool_callback=remember_client_id,
@@ -194,6 +235,9 @@ class WealthManagementWorkflow:
         self.pending_chat_messages: asyncio.Queue = asyncio.Queue()
         self.pending_status_updates: asyncio.Queue = asyncio.Queue()
         self.chat_history: list[ChatInteraction] = []
+        # Latest state reported by each open-account child workflow, keyed by its workflow ID.
+        # Read by the get_account_opening_status tool.
+        self.account_opening_states: dict[str, str] = {}
         self.end_workflow_flag = False
         self.sched_to_close_timeout = timedelta(seconds=5)
         self.retry_policy = RetryPolicy(
@@ -209,8 +253,16 @@ class WealthManagementWorkflow:
         self._session_events_data: list = []
 
     @workflow.run
-    async def run(self):
+    async def run(
+        self,
+        account_opening_states: dict[str, str] | None = None,
+        client_id: str | None = None,
+    ):
         self.wf_id = workflow.info().workflow_id
+        # Carried over from the previous run on continue-as-new. A signal may already
+        # have been handled before run started, so don't overwrite newer states.
+        for opening_id, state in (account_opening_states or {}).items():
+            self.account_opening_states.setdefault(opening_id, state)
 
         if workflow.info().continued_run_id is None:
             await workflow.execute_local_activity(
@@ -229,6 +281,7 @@ class WealthManagementWorkflow:
             app_name=APP_NAME,
             user_id=self._user_id,
             session_id=self._session_id,
+            state={CLIENT_ID_STATE_KEY: client_id} if client_id else None,
         )
         root_agent = init_agents()
         self._runner = Runner(
@@ -259,7 +312,11 @@ class WealthManagementWorkflow:
 
             if workflow.info().is_continue_as_new_suggested():
                 await workflow.wait_condition(lambda: workflow.all_handlers_finished())
-                workflow.continue_as_new(args=[])
+                session = await self._session_service.get_session(
+                    app_name=APP_NAME, user_id=self._user_id, session_id=self._session_id
+                )
+                client_id = session.state.get(CLIENT_ID_STATE_KEY) if session else None
+                workflow.continue_as_new(args=[self.account_opening_states, client_id])
 
     async def _process_chat_message(self, message: str):
         chat_interaction = ChatInteraction(user_prompt=message, text_response="")
@@ -403,6 +460,8 @@ class WealthManagementWorkflow:
     async def update_account_opening_state(
         self, state_input: UpdateAccountOpeningStateInput
     ):
+        if state_input.workflow_id:
+            self.account_opening_states[state_input.workflow_id] = state_input.state
         status_message = (
             f"New {state_input.account_name} account status changed: {state_input.state}"
         )

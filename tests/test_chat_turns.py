@@ -5,6 +5,8 @@ and stub activities registered under the real activity names.
   handoffs follow.
 - An empty model reply is nudged once, and replaced with a fallback message if the
   nudge gets nothing either, so the customer never sees an empty chat bubble.
+- The account-opening status tool reports what the open-account workflow last
+  signalled, not what the agent remembers.
 
 Requires the Temporal dev server (downloaded automatically on first run).
 No GEMINI_API_KEY or Redis needed.
@@ -20,12 +22,14 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 import tests.scripted_model as model
+from common.account_context import UpdateAccountOpeningStateInput
 from common.user_message import ChatInteraction, ProcessUserMessageInput
 from common.status_update import StatusUpdate
 from temporal_supervisor.workflows.supervisor_workflow import (
     EMPTY_RESPONSE_FALLBACK,
     WealthManagementWorkflow,
 )
+from temporal_supervisor.task_queues import LLM_TASK_QUEUE
 from tests.scripted_model import empty, text, tool, transfer
 
 TASK_QUEUE = "test-chat-turns"
@@ -63,7 +67,7 @@ async def client():
             task_queue=TASK_QUEUE,
             workflows=[WealthManagementWorkflow],
             activities=[list_beneficiaries, append_chat_interaction, append_status_update, delete_conversation],
-        ):
+        ), Worker(client, task_queue=LLM_TASK_QUEUE):  # model calls; the plugin adds invoke_model
             yield client
 
 
@@ -146,6 +150,28 @@ async def test_repeated_empty_reply_falls_back_to_a_message(client):
     # The chat carries on normally afterwards
     model.expect("Supervisor_Agent", text("How can I help with your accounts?"))
     assert await say(handle, "Hello?") == "How can I help with your accounts?"
+
+    await handle.signal(WealthManagementWorkflow.end_workflow)
+    await handle.result()
+
+
+async def test_status_tool_reports_the_state_the_open_account_workflow_signalled(client):
+    handle = await start_chat(client)
+    opening_id = "OpenAccount-test-123-Bike"
+    rolled_back = "Rolled back. The account was not opened: The custodian rejected the account registration."
+    await handle.signal(
+        WealthManagementWorkflow.update_account_opening_state,
+        UpdateAccountOpeningStateInput(account_name="Bike", state=rolled_back, workflow_id=opening_id),
+    )
+
+    model.expect("Supervisor_Agent", transfer("Investment_Agent"))
+    model.expect("Investment_Agent", transfer("Open_Account_Agent"))
+    model.expect("Open_Account_Agent", tool("get_account_opening_status", workflow_id=opening_id))
+    model.expect("Open_Account_Agent", text("The Bike account was not opened."))
+    await say(handle, "Is my Bike account open?")
+
+    history = await handle.query(WealthManagementWorkflow.get_chat_history)
+    assert rolled_back in history[-1].json_response
 
     await handle.signal(WealthManagementWorkflow.end_workflow)
     await handle.result()
