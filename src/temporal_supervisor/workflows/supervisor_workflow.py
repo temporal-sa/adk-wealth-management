@@ -25,7 +25,7 @@ with workflow.unsafe.imports_passed_through():
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
     from google.genai import types
-    from temporalio.contrib.google_adk_agents import TemporalModel
+    from temporalio.google_adk import TemporalModel
     from temporal_supervisor.activities.activity_tool import _activity_tool
     from temporal_supervisor.retry_policies import LLM_RETRY_POLICY, TOOL_RETRY_POLICY
     from temporal_supervisor.task_queues import LLM_TASK_QUEUE

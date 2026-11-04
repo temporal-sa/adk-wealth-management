@@ -1,10 +1,9 @@
 """Fixed activity_tool wrapper for ADK + Temporal integration.
 
-Two fixes over the upstream temporalio.contrib.google_adk_agents.workflow.activity_tool:
+Two fixes over the upstream temporalio.google_adk.workflow.activity_as_tool:
 
-1. Multi-arg handling: upstream unpacks as positional args (*activity_args), but
-   workflow.execute_activity only accepts a single positional arg. This version
-   uses args=[...] for correct multi-arg handling.
+1. Multi-arg handling: uses args=[...] so activities with several parameters
+   work. (Fixed upstream in temporalio-google-adk, kept here for fix 2.)
 
 2. Graceful failure: when an activity exhausts its retry policy, the error is
    caught and returned as a string to the LLM instead of crashing the ADK
