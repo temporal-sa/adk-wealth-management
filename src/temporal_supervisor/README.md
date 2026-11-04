@@ -435,6 +435,25 @@ on first run) with stub activities and a scripted model. No Gemini key or Redis 
 uv run pytest      # in the project root
 ```
 
+The agent handoffs have a live test, `tests/live_agent_handoffs.py`, that runs the real
+`WealthManagementWorkflow` against the real Gemini model, with the real beneficiary and investment
+activities (they only read `data/*.json`). The Redis event stream is replaced by in-memory stand-ins
+and the chaos flags are turned off, so Redis isn't needed. The customer asks "Who are my
+beneficiaries?", gives client ID "123", then asks "What investments do I have?". The test checks that
+the beneficiaries (John, Jane, Joan) are listed, and that in the same turn the Beneficiary Agent hands
+off to the supervisor, which hands off to the Investment Agent, so the reply lists Checking, Savings
+and 401K without mentioning a transfer or asking for the client ID again. It also checks what each
+agent said (recorded from the model activity), so a Beneficiary Agent that announces the transfer
+fails even when a later agent's reply hides it. Each run's transcript is printed.
+
+It calls the paid Gemini API, so `uv run pytest` doesn't collect it (pytest only collects `test_*.py`),
+and it is skipped when `GEMINI_API_KEY` is not set. Model output varies, so `LIVE_TEST_RUNS=<n>`
+repeats the conversation n times (default 1):
+
+```bash
+source ./setgeminikey.sh && LIVE_TEST_RUNS=10 uv run pytest tests/live_agent_handoffs.py -s   # in the project root
+```
+
 The Java workflow has the same tests, using the Temporal Java SDK's test environment:
 
 ```bash

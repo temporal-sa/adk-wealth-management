@@ -80,4 +80,5 @@ on the first run.
 uv run pytest                                      # Python: the supervisor workflow with a scripted model (no Gemini key or Redis needed)
 (cd java && ./gradlew test)                        # Java: the Open Account workflow
 (cd src/frontend && npm install && CI=true npm test)   # Frontend: the chat and the chaos panel toggle
+source ./setgeminikey.sh && LIVE_TEST_RUNS=10 uv run pytest tests/live_agent_handoffs.py -s   # Live agent-handoff test (calls the paid Gemini API)
 ```
