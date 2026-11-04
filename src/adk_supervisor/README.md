@@ -7,13 +7,19 @@ Scenarios currently implemented include
 * Add Beneficiary - add a new beneficiary to your account
 * List Beneficiaries - shows a list of beneficiaries and their relationship to the account owner
 * Delete Beneficiary - delete a beneficiary from your account
-* Open Investment Account - opens a new investment account
+* Open Investment Account - opens a new investment account. Here the Investment Agent opens it directly with its
+  `open_investment` tool (no KYC, compliance review or saga; those are in the Temporal version)
 * List Investments - shows a list of accounts and their current balances
 * Close Investment Account - closes an investment account
+* Off-topic questions - anything not about beneficiaries or investment accounts is politely declined by the
+  supervisor agent (handled in the agents' prompts)
+
+The agents remember the client ID once you've given it, so you're only asked for it once.
 
 ## Prerequisites
 
 * [uv](https://docs.astral.sh/uv/) - Python package and project manager
+* Python 3.14 or later (`requires-python` in `pyproject.toml`; uv can install it for you)
 * [Google / Gemini Key](https://console.cloud.google.com/apis/credentials) or [AI Studio](https://aistudio.google.com/api-keys) - Your key to access Gemini models
 
 ## Set up Python Environment
@@ -45,6 +51,8 @@ source ./setgeminikey.sh
 uv run python src/adk_supervisor/main.py
 ```
 
+`uv sync` also installs an `adk-supervisor` console script, so `uv run adk-supervisor` does the same.
+
 Example Output
 ```
 ============================================================
@@ -74,8 +82,15 @@ Savings: $2312.08
 
 What would you like to do: open, close, or list investment accounts?
 
+You: Open a new account called Vacation with $500
+
+Assistant: Your new Vacation account has been opened with a balance of $500.00.
+
 You: end
 Goodbye!
 ```
 
-You can also add and delete beneficiaries and open and close investment accounts. 
+You can also add and delete beneficiaries and close investment accounts.
+
+These changes are saved in the JSON files in `data/`. To reset the demo data, run `git checkout data/`
+in the project root. 

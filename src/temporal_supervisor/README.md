@@ -8,8 +8,11 @@ Scenarios currently implemented include
 * List Beneficiaries - shows a list of beneficiaries and their relationship to the account owner
 * Delete Beneficiary - delete a beneficiary from your account
 * Open Investment Account - opens a new investment account using a **Child Workflow**
+  (see [How the Open Account functionality works](#how-the-open-account-functionality-works))
 * List Investments - shows a list of accounts and their current balances
 * Close Investment Account - closes an investment account
+* Off-topic questions - anything not about beneficiaries or investment accounts is politely declined by the
+  supervisor agent (handled in the agents' prompts)
 
 ## Application Architecture
 
@@ -34,10 +37,13 @@ The Open Account workflow can optionally run in a Java worker instead
 ## Prerequisites
 
 * [uv](https://docs.astral.sh/uv/) - Python package and project manager
+* Python 3.14 or later (`requires-python` in `pyproject.toml`; uv can install it for you)
 * [Google / Gemini Key](https://console.cloud.google.com/apis/credentials) or [AI Studio](https://aistudio.google.com/api-keys) - Your key to access Gemini models
 * [Temporal CLI](https://docs.temporal.io/cli#install) - Local Temporal service
 * [Redis](https://redis.io/downloads/) - Stores conversation history and status updates
 * [Node.js](https://nodejs.org/) and npm - Runs the web frontend
+* Java JDK 25 - optional, only for the [Java Open Account worker](#running-the-open-account-workflow-in-java-optional)
+  (the Gradle wrapper is included, no separate Gradle install)
 
 ## Set up Python Environment
 Execute this in the project root (not this folder -- up two levels)
@@ -133,14 +139,18 @@ Be sure you have updated the setclaimcheck.sh as mentioned above.
 
 To run the Codec Server:
 ```bash
+cd src/temporal_supervisor
 ./startcodecserver.sh
 ```
+
+The script exits with a message if `setclaimcheck.sh` doesn't exist in the project root.
 
 And of course, make sure that your Redis Server is up and running. 
 
 Once it's up and running, the default endpoint is http://127.0.0.1:8081.
 
-Open up your browser and navigate to the Temporal UI. Locally that is usually localhost:8233. 
+Open up your browser and navigate to the Temporal UI. Locally, open it at exactly http://localhost:8233
+(not 127.0.0.1): the codec server only accepts requests from http://localhost:8233 and https://cloud.temporal.io.
 For Temporal Cloud that will be https://cloud.temporal.io
 
 In the upper right, there is an icon that looks like glasses. Click on that and you 
@@ -196,7 +206,8 @@ npm start
 ```
 
 A new browser window opens where you can interact with the application. The UI expects the API
-at `http://127.0.0.1:8000` (set in `src/frontend/src/config.js`).
+at `http://127.0.0.1:8000` (set in `src/frontend/src/config.js`). See [the API README](../api/README.md)
+and [the frontend README](../frontend/README.md) for details.
 
 If you are opening a new investment account, in another terminal
 #### Send the Compliance Reviewed Signal 
@@ -204,6 +215,11 @@ If you are opening a new investment account, in another terminal
 cd src/temporal_supervisor
 ./localsendcomplianceapproval.sh <Child Workflow ID>
 ```
+
+The child workflow ID has the form `OpenAccount-<chat workflow ID>-<client ID>-<account name>`, for example
+`OpenAccount-adk-temporal-agent-k3j9x2p1q8z-123-Vacation`. The chat UI doesn't show it. Find it in the Temporal UI
+(http://localhost:8233 locally): look for the running `OpenInvestmentAccountWorkflow`, a child of the chat's
+`WealthManagementWorkflow`. If you send the signal before KYC is done, the workflow holds it until KYC completes.
 
 ### Temporal Cloud
 
@@ -251,6 +267,8 @@ cd src/temporal_supervisor
 ./cloudsendcomplianceapproval.sh <Child Workflow ID>
 ```
 
+Find the child workflow ID in the Temporal Cloud UI, as described for [running locally](#locally).
+
 ### Configuration
 
 The worker and the API read these environment variables. The start scripts set the Gemini key,
@@ -282,6 +300,39 @@ everything back, for example before a demo, run this in the project root:
 ```bash
 git checkout data/
 ```
+
+## How the Open Account functionality works
+
+To show how to integrate other workflows within an agentic system, opening a new investment account
+starts a child workflow, `OpenInvestmentAccountWorkflow` (`workflows/open_account_workflow.py`). The
+Investment Agent hands off to an Open Account Agent, whose tools drive that workflow:
+
+* `open_new_investment_account` (`activities/open_account.py`) runs in the chat workflow, so it can start the
+  child with `workflow.start_child_workflow()`. First it runs the `validate_new_account` activity: an initial
+  deposit under $100 or over $1,000,000 is rejected and the agent explains why. It returns the child workflow ID,
+  which the other tools take.
+* The child reports each state change by signalling `update_account_opening_state` on the chat workflow. The chat
+  workflow records the latest state per account opening and shows it in the UI's status area. The agent reads it
+  with the `get_account_opening_status` tool rather than from the conversation history.
+* KYC: the child loads the client record and waits in *Waiting KYC*. The agent calls `get_current_client_info`
+  (an Update on the child), shows the details and asks whether they're correct. When the customer confirms, in a
+  later message, the agent calls `approve_kyc` (a `verify_kyc` signal). `approve_kyc` refuses until the details have
+  appeared in a reply and the customer has answered since. If something is wrong, the agent calls
+  `update_client_details` (an Update), which saves the changes and completes KYC.
+* Compliance: the child then waits in *Waiting Compliance Review* until it receives the `compliance_approved`
+  signal from `localsendcomplianceapproval.sh` / `cloudsendcomplianceapproval.sh`.
+* Saga: the child then creates the account record (`open_investment`), transfers the initial deposit from the
+  client's linked bank account (`debit_linked_account`, balances in `data/funding_accounts.json`) and registers
+  the account with the custodian (`register_account`). If a step fails with a non-retryable error, the completed
+  steps are undone in reverse order (`credit_linked_account`, then `remove_investment`) and the state ends with
+  *Rolled back*. Otherwise it ends with *Complete*. See [Failure Scenarios](#failure-scenarios-chaos-panel),
+  including the welcome-bonus bug.
+
+Each opening is one workflow per chat, client and account name. Opening an account with the same name
+again in the same chat (for example after a rollback) reuses the ID once the earlier opening has finished.
+
+The chat itself runs as a single workflow run. A long conversation in production would need continue-as-new
+(see the TODO in `workflows/supervisor_workflow.py`).
 
 ## Running the Open Account Workflow in Java (optional)
 
@@ -322,7 +373,7 @@ wealth-management demos that use the same Redis server and keys share them, so a
 | **Tool / API down** | Turn on *Core banking API down*, then ask to list your investments (or open an account, so it fails after compliance approval). Turn it off. | The activity retries (1s backoff, capped at 5s) for as long as the outage lasts. The agent waits mid-turn and answers once the API is back. Nothing is lost or re-asked. |
 | **LLM down** | Turn on *Gemini API down* and send a message. Turn it off. | The model call is an activity, so it retries the same way (capped at 10s). The conversation picks up exactly where it was. |
 | **LLM rate limited (reactive)** | Turn on *Gemini rate limited (429)* and send a message. | The model raises an `ApplicationError` with `next_retry_delay` (15s, like a `Retry-After` header), which overrides the retry policy's backoff. Real Gemini 429s (`RESOURCE_EXHAUSTED`) are turned into the same error by `ChaosAwareGemini` in `model_config.py`, which the worker registers in ADK's model registry. |
-| **LLM rate limited (proactive)** | Start the worker with `LLM_MAX_CALLS_PER_SECOND=0.2`, then chat in several browser tabs at once. | Model calls run on their own task queue (`<TEMPORAL_TASK_QUEUE>-llm`, or `TEMPORAL_TASK_QUEUE_LLM`). The Temporal service dispatches at most that many per second across *all* workers, so calls queue up instead of hitting the provider's limit. Tools on the main queue aren't slowed down. |
+| **LLM rate limited (proactive)** | Start the worker with `LLM_MAX_CALLS_PER_SECOND=0.2 ./startlocalworker.sh` (in `src/temporal_supervisor`), then chat in several browser tabs at once. | Model calls run on their own task queue (`<TEMPORAL_TASK_QUEUE>-llm`, or `TEMPORAL_TASK_QUEUE_LLM`). The Temporal service dispatches at most that many per second across *all* workers, so calls queue up instead of hitting the provider's limit. Tools on the main queue aren't slowed down. |
 | **Business rule (non-retryable)** | Ask to open an account with $2,000,000 (or less than $100). | `validate_new_account` raises a non-retryable `ApplicationError`: one attempt, no retries. The reason goes back to the agent, which explains it to the customer. Compare it with *Tool / API down* in the Temporal UI. |
 | **Saga** | Turn on *Custodian rejects new accounts* (and *Slow account-opening steps* so you can watch), then open an account through compliance approval. Without flags: as client `123`, open an account with $300,000 (the linked bank account has $250,000). | The completed steps are undone in reverse order (refund, then remove the account). Compensations are activities too, so they are retried until they succeed. Kill the worker mid-rollback and the rollback still finishes. Transfers are idempotent (keyed by the workflow and run ID), so a retried debit or refund never moves money twice. |
 | **Bug in workflow code** | Turn on *Bug in workflow code*, then open an account through compliance approval. See below. | The workflow pauses at the failing line, keeping all its state, until a worker with fixed code picks it up. |
@@ -381,7 +432,7 @@ The failure scenarios have tests that run against the Temporal dev server (downl
 on first run) with stub activities and a scripted model. No Gemini key or Redis is needed.
 
 ```bash
-uv run pytest
+uv run pytest      # in the project root
 ```
 
 The Java workflow has the same tests, using the Temporal Java SDK's test environment:
@@ -389,4 +440,12 @@ The Java workflow has the same tests, using the Temporal Java SDK's test environ
 ```bash
 cd java
 ./gradlew test
+```
+
+The web frontend has tests for the chat and the chaos panel toggle:
+
+```bash
+cd src/frontend
+npm install     # first time only
+CI=true npm test
 ```
