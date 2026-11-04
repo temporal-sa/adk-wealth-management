@@ -22,4 +22,3 @@ class ClientHelper:
         # Task Queue for the model (LLM) calls, so that they can be rate limited separately from the tools
         self.taskQueueLLM = os.getenv("TEMPORAL_TASK_QUEUE_LLM", f"{self.taskQueue}-llm")
         self.skipADKPlugin = str_to_bool(os.getenv("SKIP_ADK_PLUGIN", "False"))
-        print(f"******* Skip ADK Plugin? {self.skipADKPlugin} *******")

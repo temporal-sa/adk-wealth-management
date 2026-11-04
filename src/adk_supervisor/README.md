@@ -11,23 +11,24 @@ Scenarios currently implemented include
 * List Investments - shows a list of accounts and their current balances
 * Close Investment Account - closes an investment account
 
-## Prerequisities 
+## Prerequisites
 
 * [uv](https://docs.astral.sh/uv/) - Python package and project manager
+* [Google / Gemini Key](https://console.cloud.google.com/apis/credentials) or [AI Studio](https://aistudio.google.com/api-keys) - Your key to access Gemini models
 
 ## Set up Python Environment
-Execute this in the project root (not this folder -- up one level)
+Execute this in the project root (not this folder -- up two levels)
 
 ```bash
 uv sync
 ```
 
 ## Set up your Gemini API Key
-Execute this in the project root (not this folder -- up one level)
+Execute this in the project root (not this folder -- up two levels)
 
 ```bash
 cp setgeminikey.example setgeminikey.sh
-chmod +x setoaikey.sh
+chmod +x setgeminikey.sh
 ```
 
 Now edit the setgeminikey.sh file and paste in your Gemini API Key.
@@ -37,11 +38,11 @@ export GEMINI_API_KEY="Your API Key Goes Here"
 ```
 
 ## Running the agent
-Execute this in the project root (not this folder -- up one level)
+Execute this in the project root (not this folder -- up two levels)
 
 ```bash
 source ./setgeminikey.sh
-uv run pyton src/adk_supervisor/main.py
+uv run python src/adk_supervisor/main.py
 ```
 
 Example Output

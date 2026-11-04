@@ -5,9 +5,6 @@ wrap the agentic flow with Temporal and make it durable.
 
 ![](images/architecture.png)
 
-The vanilla Google ADK version of this example is located [here](src/adk_supervisor/README.md).
-The Temporal version of this example is located [here](src/temporal_supervisor/README.md).
-
 Scenarios currently implemented include
 * Add Beneficiary - add a new beneficiary to your account
 * List Beneficiaries - shows a list of beneficiaries and their relationship to the account owner
@@ -30,6 +27,7 @@ You can run through the scenarios with the Temporal version using the web applic
 * [Google / Gemini Key](https://console.cloud.google.com/apis/credentials) or [AI Studio](https://aistudio.google.com/api-keys) - Your key to access Gemini models
 * [Temporal CLI](https://docs.temporal.io/cli#install) - Local Temporal service
 * [Redis](https://redis.io/downloads/) - Stores conversation history
+* [Node.js](https://nodejs.org/) and npm - Runs the web frontend (Temporal version)
 * Java 21 or later - optional, only to run the Open Account workflow in [Java](java/README.md)
 
 ## Set up Python Environment
@@ -52,14 +50,16 @@ export GEMINI_API_KEY="Your API Key Goes Here"
 
 ## Getting Started
 
-See the Gemini ADK Version [here](src/adk_supervisor/README.md)
-And the Temporal version of this example is located [here](src/temporal_supervisor/README.md)
-To run the Open Account workflow in Java, see [here](java/README.md)
+* Google ADK only: [src/adk_supervisor/README.md](src/adk_supervisor/README.md)
+* Temporal version: [src/temporal_supervisor/README.md](src/temporal_supervisor/README.md)
+* Open Account workflow in Java: [java/README.md](java/README.md)
 
 ## Running the Tests
 
+Run these from the project root.
+
 ```bash
-uv run pytest           # Python: runs the supervisor workflow with a scripted model (no Gemini key or Redis needed)
-cd java && ./gradlew test   # Java: the Open Account workflow
-cd src/frontend && CI=true npm test   # Frontend: the chat and the chaos panel toggle
+uv run pytest                                      # Python: the supervisor workflow with a scripted model (no Gemini key or Redis needed)
+(cd java && ./gradlew test)                        # Java: the Open Account workflow
+(cd src/frontend && npm install && CI=true npm test)   # Frontend: the chat and the chaos panel toggle
 ```

@@ -25,7 +25,11 @@ child workflow progresses through the different steps.
 
 The API in turn, communicates with Temporal to start workflows and send signals. Finally, 
 the worker contains the two workflows - supervisor and open account - which contain the 
-agents and business logic that drive the agentic application.
+agents and business logic that drive the agentic application. The worker polls two task queues:
+`TEMPORAL_TASK_QUEUE` for the workflows and tools, and a separate queue for the Gemini model
+calls, so they can be rate limited on their own (see [Failure Scenarios](#failure-scenarios-chaos-panel)).
+The Open Account workflow can optionally run in a Java worker instead
+(see [Running the Open Account Workflow in Java](#running-the-open-account-workflow-in-java-optional)).
 
 ## Prerequisites
 
@@ -33,6 +37,7 @@ agents and business logic that drive the agentic application.
 * [Google / Gemini Key](https://console.cloud.google.com/apis/credentials) or [AI Studio](https://aistudio.google.com/api-keys) - Your key to access Gemini models
 * [Temporal CLI](https://docs.temporal.io/cli#install) - Local Temporal service
 * [Redis](https://redis.io/downloads/) - Stores conversation history and status updates
+* [Node.js](https://nodejs.org/) and npm - Runs the web frontend
 
 ## Set up Python Environment
 Execute this in the project root (not this folder -- up two levels)
@@ -45,8 +50,8 @@ uv sync
 Here are the steps to create a new Gemini key. 
 
 1. Create a New GCP Project (skip if you already have one)
-2. Enable the Gemin API in this project
-3. Open [AI Studio](aistudio.google.com)
+2. Enable the Gemini API in this project
+3. Open [AI Studio](https://aistudio.google.com)
 4. Import or select the GCP Project
 5. Create the API key
 
@@ -104,6 +109,9 @@ export REDIS_HOST=localhost
 export REDIS_PORT=6379
 ```
 
+The start scripts load `setclaimcheck.sh` if it exists. To run without the claim check, don't
+create the file, or set `USE_CLAIM_CHECK=false` in it.
+
 Save the file and be sure that you have Redis running. For example:
 
 ```bash
@@ -118,7 +126,7 @@ Also, make sure your Redis implementation is rock solid as any downtime will dir
 
 ## Run Codec Server for Claim Check (optional)
 If you have decided to set up the Claim Check above, you will 
-most likely want to also run a Codec Server to be able to see the actual sent to 
+most likely want to also run a Codec Server to be able to see the actual data sent to 
 the workflow and activities. 
 
 Be sure you have updated the setclaimcheck.sh as mentioned above.
@@ -183,10 +191,12 @@ cd src/api
 
 ```bash
 cd src/frontend
+npm install     # first time only
 npm start
 ```
 
-A new browser window opens where you can interact with the application. 
+A new browser window opens where you can interact with the application. The UI expects the API
+at `http://127.0.0.1:8000` (set in `src/frontend/src/config.js`).
 
 If you are opening a new investment account, in another terminal
 #### Send the Compliance Reviewed Signal 
@@ -230,6 +240,7 @@ cd src/api
 
 ```bash
 cd src/frontend
+npm install     # first time only
 npm start
 ```
 
@@ -238,6 +249,38 @@ If you are opening a new investment account, in another terminal
 ```bash
 cd src/temporal_supervisor
 ./cloudsendcomplianceapproval.sh <Child Workflow ID>
+```
+
+### Configuration
+
+The worker and the API read these environment variables. The start scripts set the Gemini key,
+claim check and cloud settings from the files in the project root.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `GEMINI_API_KEY` | required | Gemini API key (worker). The model is `gemini-2.5-flash`. |
+| `TEMPORAL_ADDRESS` | `127.0.0.1:7233` | Temporal frontend address |
+| `TEMPORAL_NAMESPACE` | `default` | Namespace |
+| `TEMPORAL_API_KEY` | empty | API key auth |
+| `TEMPORAL_TLS_CLIENT_CERT_PATH`, `TEMPORAL_TLS_CLIENT_KEY_PATH` | empty | mTLS auth |
+| `TEMPORAL_TASK_QUEUE` | `Supervisor` | Task queue for the workflows and tools |
+| `TEMPORAL_TASK_QUEUE_LLM` | `<TEMPORAL_TASK_QUEUE>-llm` | Task queue for the Gemini model calls |
+| `TEMPORAL_TASK_QUEUE_OPEN_ACCOUNT` | `TEMPORAL_TASK_QUEUE` | Task queue for the Open Account workflow (set by `startlocalworker.sh <queue>`) |
+| `LLM_MAX_CALLS_PER_SECOND` | unlimited | Rate limit for model calls across all workers |
+| `REDIS_HOST`, `REDIS_PORT` | `localhost`, `6379` | Redis for chat history, events and the chaos flags |
+| `USE_CLAIM_CHECK` | `false` | Claim check codec |
+
+The worker uses the Temporal SDK's [environment configuration](https://docs.temporal.io/develop/environment-configuration),
+so a `TEMPORAL_PROFILE` from a config file works too.
+
+### Resetting the Demo Data
+
+The demo keeps its data in JSON files in `data/`, and changes them as you go: opening and closing
+accounts, moving money from the linked bank account, and adding or deleting beneficiaries. To put
+everything back, for example before a demo, run this in the project root:
+
+```bash
+git checkout data/
 ```
 
 ## Running the Open Account Workflow in Java (optional)
@@ -269,6 +312,10 @@ anything. The panel also lists each injected failure as it happens (activity and
 attempt number). Open the [Temporal UI](http://localhost:8233) alongside it to show
 the pending activity, its attempt count, and the last failure. **Reset all** turns
 every flag off.
+
+The flags are stored in Redis (`chaos:flags`, with the failure log in `chaos:events`). Other
+wealth-management demos that use the same Redis server and keys share them, so a flag or
+**Reset all** affects those demos too.
 
 | Scenario | How to show it | What Temporal does |
 |---|---|---|
