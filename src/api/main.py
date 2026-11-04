@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from temporalio.client import Client
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import TemporalError
-from temporalio.contrib.google_adk_agents import GoogleAdkPlugin
+from temporalio.google_adk import GoogleAdkPlugin
 from temporalio.service import RPCError
 
 from common.chaos_manager import CHAOS_FLAGS, ChaosFlag, ChaosManager

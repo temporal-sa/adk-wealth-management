@@ -9,11 +9,11 @@ order, and records each request so tests can inspect what the agents were told.
 
 from dataclasses import dataclass
 
-import temporalio.contrib.google_adk_agents._plugin as adk_plugin_module
+import temporalio.google_adk._plugin as adk_plugin_module
 from google.adk.models import LlmRequest, LlmResponse
 from google.genai import types
 from temporalio import activity
-from temporalio.contrib.google_adk_agents import GoogleAdkPlugin
+from temporalio.google_adk import GoogleAdkPlugin
 
 
 @dataclass

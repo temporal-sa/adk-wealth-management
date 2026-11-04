@@ -4,7 +4,7 @@ import os
 
 from temporalio.client import Client
 from temporalio.worker import Worker
-from temporalio.contrib.google_adk_agents import GoogleAdkPlugin
+from temporalio.google_adk import GoogleAdkPlugin
 
 from common.client_helper import ClientHelper
 from temporal_supervisor.claim_check.claim_check_plugin import ClaimCheckPlugin
