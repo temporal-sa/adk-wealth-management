@@ -16,6 +16,7 @@ from collections.abc import Callable
 from typing import Any
 
 from temporalio import workflow
+from temporalio.exceptions import is_cancelled_exception
 
 
 def _activity_tool(activity_def: Callable, **kwargs: Any) -> Callable:
@@ -44,6 +45,8 @@ def _activity_tool(activity_def: Callable, **kwargs: Any) -> Callable:
             else:
                 return await workflow.execute_activity(activity_def, args=activity_args, **options)
         except Exception as e:
+            if is_cancelled_exception(e):
+                raise  # the workflow is being cancelled; don't hide that from Temporal
             return f"ERROR: Tool {activity_def.__name__} failed: {e}"
 
     wrapper.__name__ = activity_def.__name__

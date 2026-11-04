@@ -20,10 +20,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from common.agent_constants import (
     BENE_AGENT_NAME, BENE_HANDOFF, BENE_INSTRUCTIONS,
-    INVEST_AGENT_NAME, INVEST_HANDOFF, INVEST_INSTRUCTIONS,
+    INVEST_AGENT_NAME, INVEST_HANDOFF, STANDALONE_INVEST_INSTRUCTIONS,
     SUPERVISOR_AGENT_NAME, SUPERVISOR_HANDOFF, SUPERVISOR_INSTRUCTIONS,
-    OPEN_ACCOUNT_AGENT_NAME, OPEN_ACCOUNT_HANDOFF, OPEN_ACCOUNT_INSTRUCTIONS,
 )
+from common.client_id_memory import remember_client_id
 from common.beneficiaries_manager import BeneficiariesManager
 from common.investment_manager import InvestmentManager, InvestmentAccount
 
@@ -138,27 +138,21 @@ def close_investment(client_id: str, investment_id: str) -> str:
 # ---------------------------------------------------------------------------
 # Agent definitions
 # ---------------------------------------------------------------------------
-# NOTE: The ADK single-parent rule means an agent instance can only belong to
-# one parent. To allow back-transfers (e.g. beneficiary -> supervisor) we use
-# the agent's name in the instruction rather than a circular sub_agents ref.
-# The root agent (supervisor) is set as the runner's root so the framework's
-# AutoFlow can always find all agents by name in the hierarchy.
-
-open_account_agent = LlmAgent(
-    name=OPEN_ACCOUNT_AGENT_NAME.replace(" ", "_"),
-    model=MODEL,
-    description=OPEN_ACCOUNT_HANDOFF,
-    instruction=OPEN_ACCOUNT_INSTRUCTIONS,
-    tools=[open_investment],
-)
+# Same handoffs as the OpenAI version: Supervisor -> Beneficiary or Investment, and each
+# back to the Supervisor. The Investment Agent opens accounts itself with open_investment
+# (the Temporal version has an Open Account Agent for that). Peer transfers
+# (Beneficiary <-> Investment) are disallowed so they go through the Supervisor.
+# remember_client_id saves the client ID in session state, which each agent's
+# instructions read through {client_id?}, so the customer is asked for it once.
 
 investment_agent = LlmAgent(
     name=INVEST_AGENT_NAME.replace(" ", "_"),
     model=MODEL,
     description=INVEST_HANDOFF,
-    instruction=INVEST_INSTRUCTIONS,
-    tools=[list_investments, close_investment],
-    sub_agents=[open_account_agent],
+    instruction=STANDALONE_INVEST_INSTRUCTIONS,
+    before_tool_callback=remember_client_id,
+    disallow_transfer_to_peers=True,
+    tools=[list_investments, open_investment, close_investment],
 )
 
 beneficiary_agent = LlmAgent(
@@ -166,6 +160,8 @@ beneficiary_agent = LlmAgent(
     model=MODEL,
     description=BENE_HANDOFF,
     instruction=BENE_INSTRUCTIONS,
+    before_tool_callback=remember_client_id,
+    disallow_transfer_to_peers=True,
     tools=[list_beneficiaries, add_beneficiary, delete_beneficiary],
 )
 
@@ -174,6 +170,7 @@ supervisor_agent = LlmAgent(
     model=MODEL,
     description=SUPERVISOR_HANDOFF,
     instruction=SUPERVISOR_INSTRUCTIONS,
+    before_tool_callback=remember_client_id,
     sub_agents=[beneficiary_agent, investment_agent],
 )
 

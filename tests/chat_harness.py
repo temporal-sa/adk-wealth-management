@@ -55,8 +55,13 @@ async def approve_kyc(workflow_id: str) -> None:
     kyc_approvals.append(workflow_id)
 
 
+# Chat turns the workflows published (what the UI would show), by workflow ID
+published_turns: dict[str, list[ChatInteraction]] = {}
+
+
 @activity.defn(name="append_chat_interaction")
 async def append_chat_interaction(workflow_id: str, chat_interaction: ChatInteraction) -> int:
+    published_turns.setdefault(workflow_id, []).append(chat_interaction)
     return 1
 
 

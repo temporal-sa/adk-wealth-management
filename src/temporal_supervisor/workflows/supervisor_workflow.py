@@ -14,6 +14,7 @@ from common.agent_constants import (
     OPEN_ACCOUNT_AGENT_NAME, OPEN_ACCOUNT_HANDOFF, OPEN_ACCOUNT_INSTRUCTIONS,
 )
 from common.account_context import UpdateAccountOpeningStateInput
+from common.client_id_memory import remember_client_id
 from temporal_supervisor.activities.event_stream_activities import EventStreamActivities
 
 with workflow.unsafe.imports_passed_through():
@@ -21,7 +22,6 @@ with workflow.unsafe.imports_passed_through():
     from temporal_supervisor.activities.investments import Investments
     from temporal_supervisor.activities.open_account import OpenAccount, open_new_investment_account
     from google.adk.agents import LlmAgent
-    from google.adk.events import Event
     from google.adk.runners import Runner
     from google.adk.sessions import InMemorySessionService
     from google.genai import types
@@ -29,11 +29,11 @@ with workflow.unsafe.imports_passed_through():
     from temporal_supervisor.activities.activity_tool import _activity_tool
     from temporal_supervisor.retry_policies import LLM_RETRY_POLICY, TOOL_RETRY_POLICY
     from temporal_supervisor.task_queues import LLM_TASK_QUEUE
+    from temporalio.exceptions import is_cancelled_exception
 
 
 MODEL = "gemini-2.5-flash"
 APP_NAME = "wealth-management"
-CLIENT_ID_STATE_KEY = "client_id"
 # Sent when the model ends a turn with no text and no tool call, which Gemini occasionally does
 EMPTY_RESPONSE_NUDGE = "Please continue, following your instructions."
 EMPTY_RESPONSE_FALLBACK = "Sorry, I didn't catch that. Could you please say it again?"
@@ -106,16 +106,29 @@ async def update_client_details(
     )
 
 
-def remember_client_id(tool, args: dict, tool_context) -> None:
-    """before_tool_callback: save the client ID in session state the first time a tool receives it.
+# Errors that must reach Temporal rather than the model: they signal a workflow bug or
+# nondeterminism (the workflow task is retried), or are raised outside the workflow event loop.
+_TEMPORAL_INTERNAL_ERRORS = (
+    workflow.NondeterminismError,  # includes the sandbox's RestrictedWorkflowAccessError
+    workflow.ReadOnlyContextError,
+    workflow._NotInWorkflowEventLoopError,
+)
 
-    Every agent's instructions read it back through the {client_id?} placeholder, so the
-    customer is asked for it once, no matter how many agent handoffs follow.
+
+def tool_error_to_model(tool, args: dict, tool_context, error: BaseException) -> dict | None:
+    """on_tool_error_callback: give a failed tool's error to the model, as the OpenAI version does.
+
+    Without it, ADK re-raises the error, which fails the workflow (e.g. a Temporal
+    WorkflowAlreadyStartedError) or retries the workflow task forever (e.g. a KeyError).
+    Cancellation and Temporal's internal errors are not caught: returning None lets them
+    propagate. (Eviction is a BaseException, which never reaches here.)
     """
-    client_id = args.get("client_id")
-    if client_id and tool_context.state.get(CLIENT_ID_STATE_KEY) != client_id:
-        tool_context.state[CLIENT_ID_STATE_KEY] = client_id
-    return None
+    if not isinstance(error, Exception) or is_cancelled_exception(error):
+        return None
+    if isinstance(error, _TEMPORAL_INTERNAL_ERRORS):
+        return None
+    workflow.logger.warning(f"Tool {getattr(tool, 'name', tool)} failed: {error!r}")
+    return {"error": f"Tool {getattr(tool, 'name', tool)} failed: {error}"}
 
 
 async def get_account_opening_status(workflow_id: str) -> str:
@@ -223,6 +236,7 @@ def init_agents() -> LlmAgent:
         description=OPEN_ACCOUNT_HANDOFF,
         instruction=OPEN_ACCOUNT_INSTRUCTIONS,
         before_tool_callback=remember_client_id,
+        on_tool_error_callback=tool_error_to_model,
         tools=[
             open_new_investment_account,
             get_account_opening_status,
@@ -237,7 +251,10 @@ def init_agents() -> LlmAgent:
         model=_model(INVEST_AGENT_NAME),
         description=INVEST_HANDOFF,
         instruction=INVEST_INSTRUCTIONS,
+        # Matches the OpenAI version's handoffs: Investment -> Open Account or Supervisor, not Beneficiary
+        disallow_transfer_to_peers=True,
         before_tool_callback=remember_client_id,
+        on_tool_error_callback=tool_error_to_model,
         tools=[
             _activity_tool(
                 Investments.list_investments,
@@ -258,7 +275,10 @@ def init_agents() -> LlmAgent:
         model=_model(BENE_AGENT_NAME),
         description=BENE_HANDOFF,
         instruction=BENE_INSTRUCTIONS,
+        # Matches the OpenAI version's handoffs: Beneficiary -> Supervisor only, not Investment
+        disallow_transfer_to_peers=True,
         before_tool_callback=remember_client_id,
+        on_tool_error_callback=tool_error_to_model,
         tools=[
             _activity_tool(
                 Beneficiaries.list_beneficiaries,
@@ -280,6 +300,7 @@ def init_agents() -> LlmAgent:
         description=SUPERVISOR_HANDOFF,
         instruction=SUPERVISOR_INSTRUCTIONS,
         before_tool_callback=remember_client_id,
+        on_tool_error_callback=tool_error_to_model,
         sub_agents=[beneficiary_agent, investment_agent],
     )
 
@@ -314,27 +335,17 @@ class WealthManagementWorkflow:
         self._runner: Runner | None = None
         self._session_id: str | None = None
         self._user_id: str = "workflow-user"
-        self._session_events_data: list = []
 
     @workflow.run
-    async def run(
-        self,
-        account_opening_states: dict[str, str] | None = None,
-        client_id: str | None = None,
-    ):
+    async def run(self):
         self.wf_id = workflow.info().workflow_id
-        # Carried over from the previous run on continue-as-new. A signal may already
-        # have been handled before run started, so don't overwrite newer states.
-        for opening_id, state in (account_opening_states or {}).items():
-            self.account_opening_states.setdefault(opening_id, state)
 
-        if workflow.info().continued_run_id is None:
-            await workflow.execute_local_activity(
-                EventStreamActivities.delete_conversation,
-                args=[self.wf_id],
-                schedule_to_close_timeout=self.sched_to_close_timeout,
-                retry_policy=self.retry_policy,
-            )
+        await workflow.execute_local_activity(
+            EventStreamActivities.delete_conversation,
+            args=[self.wf_id],
+            schedule_to_close_timeout=self.sched_to_close_timeout,
+            retry_policy=self.retry_policy,
+        )
 
         # Initialize ADK runner inside the workflow.
         # GoogleAdkPlugin configures TemporalModel as the LLM backend so that
@@ -345,7 +356,6 @@ class WealthManagementWorkflow:
             app_name=APP_NAME,
             user_id=self._user_id,
             session_id=self._session_id,
-            state={CLIENT_ID_STATE_KEY: client_id} if client_id else None,
         )
         root_agent = init_agents()
         self._runner = Runner(
@@ -374,13 +384,23 @@ class WealthManagementWorkflow:
                 status_message = self.pending_status_updates.get_nowait()
                 await self._process_status_update(status_message)
 
-            if workflow.info().is_continue_as_new_suggested():
-                await workflow.wait_condition(lambda: workflow.all_handlers_finished())
-                session = await self._session_service.get_session(
-                    app_name=APP_NAME, user_id=self._user_id, session_id=self._session_id
-                )
-                client_id = session.state.get(CLIENT_ID_STATE_KEY) if session else None
-                workflow.continue_as_new(args=[self.account_opening_states, client_id])
+            # TODO: Continue-As-New.
+            # This demo keeps the whole conversation in one workflow run. A production system
+            # would call continue-as-new when workflow.info().is_continue_as_new_suggested()
+            # returns true, because Temporal limits a run's event history (warnings at 10K
+            # events / 10 MB, terminated at 50K events / 50 MB) and every LLM call and tool
+            # call adds events, so a long-running chat would eventually hit those limits.
+            # To do it safely:
+            #   - Wait for workflow.all_handlers_finished() and drain the pending message and
+            #     status queues first, so no customer message or status update is lost.
+            #   - Carry the conversation state into the new run: the message history, the
+            #     active agent, the client ID, the account-opening states, and the KYC
+            #     guard's turn tracking.
+            #   - Open-account child workflows are started with ParentClosePolicy.TERMINATE,
+            #     which also applies when the parent continues-as-new, so an opening waiting
+            #     for KYC or compliance would be terminated. Use ParentClosePolicy.ABANDON and
+            #     have the end_workflow handler cancel/terminate any openings still running,
+            #     or defer continue-as-new until no opening is in progress.
 
     async def _process_chat_message(self, message: str):
         self.turn += 1
@@ -406,31 +426,6 @@ class WealthManagementWorkflow:
         )
 
     async def _process_user_message(self, chat_interaction: ChatInteraction, message: str):
-        # Restore session events lost due to InMemorySessionService not surviving
-        # Temporal workflow replay between signals.
-        session = await self._session_service.get_session(
-            app_name=APP_NAME, user_id=self._user_id, session_id=self._session_id
-        )
-        if session is None:
-            session = await self._session_service.create_session(
-                app_name=APP_NAME, user_id=self._user_id, session_id=self._session_id
-            )
-        state_keys = list(session.state.keys()) if session.state else []
-        workflow.logger.info(
-            f"[session-debug] message='{message[:40]}' "
-            f"session_events={len(session.events)} "
-            f"state_keys={state_keys} "
-            f"session_events_data={len(self._session_events_data)}"
-        )
-        if not session.events and self._session_events_data:
-            for e_data in self._session_events_data:
-                try:
-                    event = Event.model_validate(e_data)
-                    session.events.append(event)
-                except Exception as exc:
-                    workflow.logger.warning(f"Failed to restore session event: {exc}")
-            workflow.logger.info(f"[session-debug] restored {len(session.events)} events")
-
         text_response, agent_trace, json_response = await self._run_agents(message)
         if not text_response:
             # The model ended the turn without saying anything. Nudge it once, then fall back
@@ -442,19 +437,6 @@ class WealthManagementWorkflow:
             if not text_response:
                 workflow.logger.warning("[empty-response] still no text after nudge; using fallback")
                 text_response = EMPTY_RESPONSE_FALLBACK
-
-        # Persist session events so they survive the next Temporal replay.
-        session_after = await self._session_service.get_session(
-            app_name=APP_NAME, user_id=self._user_id, session_id=self._session_id
-        )
-        if session_after and session_after.events:
-            try:
-                self._session_events_data = [
-                    e.model_dump(mode="json") for e in session_after.events
-                ]
-                workflow.logger.info(f"[session-debug] saved {len(self._session_events_data)} session events")
-            except Exception as exc:
-                workflow.logger.warning(f"Failed to serialize session events: {exc}")
 
         # Details only count as shown if the reply the customer sees actually contains them
         for opening_id, details in self.kyc_details_fetched.items():
@@ -502,18 +484,18 @@ class WealthManagementWorkflow:
                 for i, part in enumerate(event.content.parts):
                     part_text = getattr(part, "text", None)
                     part_thought = getattr(part, "thought", None)
-                    workflow.logger.info(
+                    workflow.logger.debug(
                         f"[event-part] author={event.author!r} part[{i}]: "
                         f"text={part_text!r} thought={part_thought}"
                     )
                     if part_text:
                         text_response += part_text
             elif not event.content:
-                workflow.logger.info(f"[event-part] author={event.author!r} NO CONTENT")
+                workflow.logger.debug(f"[event-part] author={event.author!r} NO CONTENT")
             elif not event.content.parts:
-                workflow.logger.info(f"[event-part] author={event.author!r} EMPTY PARTS")
+                workflow.logger.debug(f"[event-part] author={event.author!r} EMPTY PARTS")
 
-        workflow.logger.info(
+        workflow.logger.debug(
             f"[session-debug] run_async done: text_response='{text_response[:80]}' "
             f"agent_trace='{agent_trace[:80]}'"
         )
