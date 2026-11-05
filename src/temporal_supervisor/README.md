@@ -334,6 +334,43 @@ again in the same chat (for example after a rollback) reuses the ID once the ear
 The chat itself runs as a single workflow run. A long conversation in production would need continue-as-new
 (see the TODO in `workflows/supervisor_workflow.py`).
 
+### Testing the open-account workflow on its own
+
+`startlocalopenaccount.sh` exercises `OpenInvestmentAccountWorkflow` without the chat, the API, the UI or
+the LLM (no Gemini key needed). It starts a Python worker in the background with `SKIP_ADK_PLUGIN=True`
+(no Google ADK plugin), runs `run_open_account_workflow.py`, and stops the worker when it finishes. The
+script runs three scenarios for client `123`, each starting the workflow directly and printing its state
+changes (the `get_current_state` query) and the result:
+
+1. KYC approved (`verify_kyc`), then compliance approved.
+2. Client details read (`get_client_details`) and changed (`update_client_details`, which completes
+   KYC: client 123's last name becomes "Doenut"), then compliance approved.
+3. KYC approved, then the workflow waits in *Waiting Compliance Review* until you send the approval
+   yourself. The script prints the command, for example
+   `cd src/temporal_supervisor && ./localsendcomplianceapproval.sh testing-open-account-<run>-3`.
+
+Temporal must be running (Redis too, for the chaos flags the activities read; without it chaos is
+simply off). From any directory:
+
+```bash
+src/temporal_supervisor/startlocalopenaccount.sh
+```
+
+With a task queue name, the workflow runs on that queue, so you can run the same scenarios against
+the Java workflow (start `java/startlocalworker.sh <queue>` first):
+
+```bash
+src/temporal_supervisor/startlocalopenaccount.sh OpenAccount
+```
+
+Further arguments go to `run_open_account_workflow.py`: `--scenario N` (repeatable) runs only some
+scenarios, and `--amount X` sets the initial deposit, e.g. `--scenario 1 --amount 300000` to see the
+saga roll back (client 123's linked bank account has less than that). Each run uses new workflow IDs
+(`testing-open-account-<run>-<scenario>`). It uses the same connection settings (`TEMPORAL_ADDRESS`, ...)
+and claim check setting (`setclaimcheck.sh`) as the worker. Like the demo, the scenarios change
+`data/*.json` (a new account, the linked bank account balance, client 123's last name); reset them with
+`git checkout data/`.
+
 ## Running the Open Account Workflow in Java (optional)
 
 The Open Account workflow can run in a Java worker while the supervisor (AI) workflow and all

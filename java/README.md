@@ -38,6 +38,11 @@ cd java
 ./startlocalworker.sh OpenAccount
 ```
 
+To try the Java workflow without the chat or a Gemini key, run the open-account scenarios against it
+instead of the Python worker (with this worker running):
+`src/temporal_supervisor/startlocalopenaccount.sh OpenAccount`. See "Testing the open-account workflow
+on its own" in [the main README](../src/temporal_supervisor/README.md).
+
 For Temporal Cloud, use `startcloudworker.sh` in both places. It reads the connection settings from
 `setcloudenv.sh` in the project root, the same file the Python worker uses.
 
