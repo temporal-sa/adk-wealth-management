@@ -45,8 +45,9 @@ async def test_client_id_is_asked_for_once_and_shared_with_every_agent(client):
     model.expect("Beneficiary_Agent", text("Your beneficiary is John Doe (son)."))
     await say(handle, CLIENT_ID)
 
-    # The same handoffs as the reported chat: beneficiaries -> investments -> open account
-    model.expect("Beneficiary_Agent", transfer("Investment_Agent"))
+    # Beneficiaries -> investments -> open account (via the supervisor, as in the OpenAI version)
+    model.expect("Beneficiary_Agent", transfer("Supervisor_Agent"))
+    model.expect("Supervisor_Agent", transfer("Investment_Agent"))
     model.expect("Investment_Agent", transfer("Open_Account_Agent"))
     model.expect("Open_Account_Agent", text("Opening the Bike account."))
     await say(handle, "Open Bike with $15,000")

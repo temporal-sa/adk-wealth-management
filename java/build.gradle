@@ -28,9 +28,9 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
-// Compile for Java 21 with whatever JDK (21+) runs Gradle
+// Compile for Java 25 with whatever JDK (25+) runs Gradle
 tasks.withType(JavaCompile).configureEach {
-    options.release = 21
+    options.release = 25
 }
 
 bootJar {

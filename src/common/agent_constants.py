@@ -1,5 +1,5 @@
 # Shared by every agent. {client_id?} is filled in by ADK from session state, which is set the
-# first time any tool is called with a client_id (see remember_client_id in supervisor_workflow.py).
+# first time any tool is called with a client_id (see remember_client_id in client_id_memory.py).
 CLIENT_ID_INSTRUCTIONS = """The customer's client ID is: "{client_id?}".
     If the client ID is empty, ask the customer for it. Otherwise use it, and never ask for it again."""
 
@@ -30,7 +30,10 @@ BENE_INSTRUCTIONS = f"""You are a beneficiary agent. You were likely transferred
 # Investment Constants
 INVEST_AGENT_NAME   = "Investment Agent"
 INVEST_HANDOFF      = "A helpful agent that handles a customer's investment accounts. It can list, open and close investment accounts."
-INVEST_INSTRUCTIONS = f"""You are an investment agent. You were likely transferred here from the supervisor agent.
+
+
+def _invest_instructions(opening_step: str) -> str:
+    return f"""You are an investment agent. You were likely transferred here from the supervisor agent.
     You are responsible for listing, opening, and closing investment accounts.
 
     Follow these steps every time:
@@ -44,18 +47,27 @@ INVEST_INSTRUCTIONS = f"""You are an investment agent. You were likely transferr
     - Present the account names and balances to the customer. Store the investment IDs internally but never show them.
 
     Step 3: Ask the customer what they would like to do: open, close, or list investment accounts.
-    - Opening: transfer to the Open Account Agent.
+    - Opening: {opening_step}
     - Closing: confirm the account to close, ask for confirmation, then call close_investment using the stored investment ID.
     - Listing: call list_investments again.
 
     If a requested operation has no available tool, say it cannot be completed at this time.
     For questions unrelated to investments, transfer back to the supervisor agent."""
 
+INVEST_INSTRUCTIONS = _invest_instructions("transfer to the Open Account Agent.")
+# The standalone version (adk_supervisor) has no Open Account Agent: the Investment Agent opens accounts itself
+STANDALONE_INVEST_INSTRUCTIONS = _invest_instructions(
+    "ask for the account name and the initial balance, then call open_investment.")
+
 # Supervisor Constants
 SUPERVISOR_AGENT_NAME   = "Supervisor Agent"
 SUPERVISOR_HANDOFF      = "A supervisor agent that can delegate customer's requests to the appropriate agent"
 SUPERVISOR_INSTRUCTIONS = f"""You are a helpful wealth management assistant. You only answer questions related to beneficiaries and investment accounts.
-    If a customer asks about anything not related to wealth management (beneficiaries or investments), politely decline and explain you can only help with wealth management topics.
+You only help with wealth management: the customer's beneficiaries and investment accounts.
+If the customer asks about anything else (for example general knowledge, weather, news, or
+other financial products), politely decline, say that you can only help with beneficiaries
+and investment accounts, and do not answer the question. Then ask how you can help with
+their beneficiaries or investment accounts.
     # Routine
     1. {CLIENT_ID_INSTRUCTIONS}
     2. Route to the appropriate specialized agent based on the customer's request:

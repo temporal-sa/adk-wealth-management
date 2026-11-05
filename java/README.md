@@ -21,7 +21,7 @@ How the two sides fit together:
 
 ## Prerequisites
 
-* Java 21 or later (Gradle is provided by the wrapper)
+* Java JDK 25 (Gradle 9.8.2 is provided by the wrapper, so no separate Gradle install)
 * Everything the Python demo needs (see [the main README](../src/temporal_supervisor/README.md))
 
 ## Running

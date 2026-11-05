@@ -20,6 +20,8 @@ from temporalio.google_adk import GoogleAdkPlugin
 class ModelCall:
     agent: str
     system_instruction: str
+    # The conversation the agent was given, one line per part
+    contents: str = ""
 
 
 calls: list[ModelCall] = []
@@ -38,6 +40,19 @@ def expect(agent: str, response: list[LlmResponse]) -> None:
 
 def unused() -> list[tuple[str, list[LlmResponse]]]:
     return list(_script)
+
+
+def _contents_text(llm_request: LlmRequest) -> str:
+    lines = []
+    for content in llm_request.contents or []:
+        for part in content.parts or []:
+            if part.text:
+                lines.append(f"{content.role}: {part.text}")
+            elif part.function_call:
+                lines.append(f"{content.role}: call {part.function_call.name}({part.function_call.args})")
+            elif part.function_response:
+                lines.append(f"{content.role}: {part.function_response.name} -> {part.function_response.response}")
+    return "\n".join(lines)
 
 
 def instructions_for(agent: str) -> list[str]:
@@ -65,7 +80,8 @@ def empty() -> list[LlmResponse]:
 @activity.defn(name="invoke_model")
 async def fake_invoke_model(llm_request: LlmRequest) -> list[LlmResponse]:
     agent = (llm_request.config.labels or {}).get("adk_agent_name")
-    calls.append(ModelCall(agent=agent, system_instruction=str(llm_request.config.system_instruction)))
+    calls.append(ModelCall(agent=agent, system_instruction=str(llm_request.config.system_instruction),
+                           contents=_contents_text(llm_request)))
     if not _script:
         raise AssertionError(f"unexpected model call from {agent}: the script is empty")
     expected_agent, response = _script.pop(0)
