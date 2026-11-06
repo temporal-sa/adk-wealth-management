@@ -8,6 +8,7 @@ from temporalio.workflow import ActivityConfig
 from common.user_message import ProcessUserMessageInput, ChatInteraction
 from common.status_update import StatusUpdate
 from common.agent_constants import (
+    HANDOFF_PROMPT_PREFIX,
     BENE_AGENT_NAME, BENE_HANDOFF, BENE_INSTRUCTIONS,
     INVEST_AGENT_NAME, INVEST_HANDOFF, INVEST_INSTRUCTIONS,
     SUPERVISOR_AGENT_NAME, SUPERVISOR_HANDOFF, SUPERVISOR_INSTRUCTIONS,
@@ -234,7 +235,7 @@ def init_agents() -> LlmAgent:
         name=OPEN_ACCOUNT_AGENT_NAME.replace(" ", "_"),
         model=_model(OPEN_ACCOUNT_AGENT_NAME),
         description=OPEN_ACCOUNT_HANDOFF,
-        instruction=OPEN_ACCOUNT_INSTRUCTIONS,
+        instruction=HANDOFF_PROMPT_PREFIX + OPEN_ACCOUNT_INSTRUCTIONS,
         before_tool_callback=remember_client_id,
         on_tool_error_callback=tool_error_to_model,
         tools=[
@@ -250,7 +251,7 @@ def init_agents() -> LlmAgent:
         name=INVEST_AGENT_NAME.replace(" ", "_"),
         model=_model(INVEST_AGENT_NAME),
         description=INVEST_HANDOFF,
-        instruction=INVEST_INSTRUCTIONS,
+        instruction=HANDOFF_PROMPT_PREFIX + INVEST_INSTRUCTIONS,
         # Matches the OpenAI version's handoffs: Investment -> Open Account or Supervisor, not Beneficiary
         disallow_transfer_to_peers=True,
         before_tool_callback=remember_client_id,
@@ -274,7 +275,7 @@ def init_agents() -> LlmAgent:
         name=BENE_AGENT_NAME.replace(" ", "_"),
         model=_model(BENE_AGENT_NAME),
         description=BENE_HANDOFF,
-        instruction=BENE_INSTRUCTIONS,
+        instruction=HANDOFF_PROMPT_PREFIX + BENE_INSTRUCTIONS,
         # Matches the OpenAI version's handoffs: Beneficiary -> Supervisor only, not Investment
         disallow_transfer_to_peers=True,
         before_tool_callback=remember_client_id,
@@ -298,7 +299,7 @@ def init_agents() -> LlmAgent:
         name=SUPERVISOR_AGENT_NAME.replace(" ", "_"),
         model=_model(SUPERVISOR_AGENT_NAME),
         description=SUPERVISOR_HANDOFF,
-        instruction=SUPERVISOR_INSTRUCTIONS,
+        instruction=HANDOFF_PROMPT_PREFIX + SUPERVISOR_INSTRUCTIONS,
         before_tool_callback=remember_client_id,
         on_tool_error_callback=tool_error_to_model,
         sub_agents=[beneficiary_agent, investment_agent],

@@ -19,6 +19,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from common.agent_constants import (
+    HANDOFF_PROMPT_PREFIX,
     BENE_AGENT_NAME, BENE_HANDOFF, BENE_INSTRUCTIONS,
     INVEST_AGENT_NAME, INVEST_HANDOFF, STANDALONE_INVEST_INSTRUCTIONS,
     SUPERVISOR_AGENT_NAME, SUPERVISOR_HANDOFF, SUPERVISOR_INSTRUCTIONS,
@@ -149,7 +150,7 @@ investment_agent = LlmAgent(
     name=INVEST_AGENT_NAME.replace(" ", "_"),
     model=MODEL,
     description=INVEST_HANDOFF,
-    instruction=STANDALONE_INVEST_INSTRUCTIONS,
+    instruction=HANDOFF_PROMPT_PREFIX + STANDALONE_INVEST_INSTRUCTIONS,
     before_tool_callback=remember_client_id,
     disallow_transfer_to_peers=True,
     tools=[list_investments, open_investment, close_investment],
@@ -159,7 +160,7 @@ beneficiary_agent = LlmAgent(
     name=BENE_AGENT_NAME.replace(" ", "_"),
     model=MODEL,
     description=BENE_HANDOFF,
-    instruction=BENE_INSTRUCTIONS,
+    instruction=HANDOFF_PROMPT_PREFIX + BENE_INSTRUCTIONS,
     before_tool_callback=remember_client_id,
     disallow_transfer_to_peers=True,
     tools=[list_beneficiaries, add_beneficiary, delete_beneficiary],
@@ -169,7 +170,7 @@ supervisor_agent = LlmAgent(
     name=SUPERVISOR_AGENT_NAME.replace(" ", "_"),
     model=MODEL,
     description=SUPERVISOR_HANDOFF,
-    instruction=SUPERVISOR_INSTRUCTIONS,
+    instruction=HANDOFF_PROMPT_PREFIX + SUPERVISOR_INSTRUCTIONS,
     before_tool_callback=remember_client_id,
     sub_agents=[beneficiary_agent, investment_agent],
 )

@@ -184,6 +184,12 @@ Start Temporal Locally.
 temporal server start-dev
 ```
 
+Start Redis (see [Set up Redis](#set-up-redis)) in another terminal:
+
+```bash
+redis-server
+```
+
 #### Start the Worker
 
 ```bash
@@ -219,7 +225,14 @@ cd src/temporal_supervisor
 The child workflow ID has the form `OpenAccount-<chat workflow ID>-<client ID>-<account name>`, for example
 `OpenAccount-adk-temporal-agent-k3j9x2p1q8z-123-Vacation`. The chat UI doesn't show it. Find it in the Temporal UI
 (http://localhost:8233 locally): look for the running `OpenInvestmentAccountWorkflow`, a child of the chat's
-`WealthManagementWorkflow`. If you send the signal before KYC is done, the workflow holds it until KYC completes.
+`WealthManagementWorkflow`, or list the running ones with:
+
+```bash
+temporal workflow list --query "WorkflowType='OpenInvestmentAccountWorkflow' AND ExecutionStatus='Running'"
+```
+
+Quote the ID if the account name contains spaces. If you send the signal before KYC is done, the workflow
+holds it until KYC completes.
 
 ### Temporal Cloud
 
