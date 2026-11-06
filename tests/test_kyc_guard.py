@@ -16,8 +16,8 @@ from tests.scripted_model import text, tool, transfer
 
 pytestmark = pytest.mark.usefixtures("scripted")
 
-OPENING = "OpenAccount-test-123-Boat"
-CAR = "OpenAccount-test-123-Car"
+OPENING = "OpenAccount-test-123-Boat-1"
+CAR = "OpenAccount-test-123-Car-2"
 DETAILS_REPLY = (
     f"First Name: {CLIENT_DETAILS['first_name']}\nLast Name: {CLIENT_DETAILS['last_name']}\n"
     f"Email: {CLIENT_DETAILS['email']}\nIs this information correct?"

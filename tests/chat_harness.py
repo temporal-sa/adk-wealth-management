@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 
 from temporalio import activity
 from temporalio.client import Client, WorkflowHandle
+from temporalio.exceptions import ApplicationError
 from temporalio.worker import Worker
 
 from common.status_update import StatusUpdate
@@ -45,8 +46,14 @@ async def find_promotion(client_id: str) -> None:
     return None
 
 
+# An account opening whose client details can't be read: get_current_client_info fails for it
+FAILING_OPENING = "OpenAccount-test-123-Broken-1"
+
+
 @activity.defn(name="get_current_client_info")
 async def get_current_client_info(workflow_id: str) -> dict:
+    if workflow_id == FAILING_OPENING:
+        raise ApplicationError("The account opening was not found", type="NotFound", non_retryable=True)
     return CLIENT_DETAILS
 
 

@@ -62,9 +62,14 @@ async def open_new_investment_account(
         initial_amount=initial_amount,
         promo_code=promo_code,
     )
+    # Every request starts a new account opening, even for an account name opened (or still
+    # being opened) earlier in this conversation, so the ID ends with the number of openings
+    # started so far, counting this one. The count is workflow state, so it replays the same.
+    chat = workflow.instance()
+    opening_number = chat.account_openings_started + 1
     current_workflow_id = workflow.info().workflow_id
     child_workflow_id = (
-        f"OpenAccount-{current_workflow_id}-{client_id}-{account_name}"
+        f"OpenAccount-{current_workflow_id}-{client_id}-{account_name}-{opening_number}"
     )
     await workflow.start_child_workflow(
         OpenInvestmentAccountWorkflow.run,
@@ -73,9 +78,9 @@ async def open_new_investment_account(
         parent_close_policy=ParentClosePolicy.TERMINATE,
         task_queue=OPEN_ACCOUNT_TASK_QUEUE,
     )
-    # Opening an account with the same name again reuses the workflow ID, so replace the
-    # previous opening's status (e.g. "Rolled back...") until the new one reports in.
-    workflow.instance().account_opening_states[child_workflow_id] = "Initializing"
+    # Counted only once the opening has actually started
+    chat.account_openings_started = opening_number
+    chat.account_opening_states[child_workflow_id] = "Initializing"
     return child_workflow_id
 
 

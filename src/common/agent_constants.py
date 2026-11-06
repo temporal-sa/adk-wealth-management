@@ -1,3 +1,20 @@
+# Prepended to every agent's instruction (all of them can transfer: the supervisor to its sub-agents,
+# each sub-agent back to its parent), like the OpenAI Agents SDK's RECOMMENDED_PROMPT_PREFIX in the
+# reference implementation. ADK transfers with its built-in transfer_to_agent tool, called with the
+# target agent's name. Without this, an agent asked about something outside its routine tends to tell
+# the customer it will transfer them (or ask whether they want to be) instead of calling the tool.
+# No braces here: ADK would treat them as session-state placeholders.
+HANDOFF_PROMPT_PREFIX = """# System context
+You are part of a multi-agent system. Each agent has its own instructions and tools, and can transfer the
+conversation to another agent when appropriate. Transfers are done by calling the transfer_to_agent tool
+with the name of the agent to transfer to. When the customer's request belongs to another agent, call
+transfer_to_agent right away: do not ask the customer whether they want to be transferred, and do not say
+that you are transferring them. Transfers between agents are handled seamlessly in the background; do not
+mention or draw attention to these transfers in your conversation with the customer. The agent you
+transfer to answers the customer's request.
+
+"""
+
 # Shared by every agent. {client_id?} is filled in by ADK from session state, which is set the
 # first time any tool is called with a client_id (see remember_client_id in client_id_memory.py).
 CLIENT_ID_INSTRUCTIONS = """The customer's client ID is: "{client_id?}".
@@ -88,12 +105,14 @@ OPEN_ACCOUNT_INSTRUCTIONS = f"""You are a helpful agent. You can use your tools 
     An account opening is finished when its status is "Complete" (the account was opened) or starts with
     "Rolled back" (the account was not opened; explain the reason to the customer). If the customer wants
     to try again after a rollback, start a new account opening.
-    Every request to open an account starts a new account opening with open_new_investment_account,
-    even if an earlier opening with the same account name finished or was rolled back in this conversation.
     Only check the status of an opening you started for the customer's current request.
     # Routine
     1. {CLIENT_ID_INSTRUCTIONS}
     2. Use the open_new_investment_account tool to begin the process.
+       Every request to open an account starts a new account opening: call open_new_investment_account each time,
+       even if an account with the same name was opened, or is still being opened, earlier in this conversation.
+       Don't ask the customer whether they want another one.
+       Never answer a request to open an account from the conversation history.
        If the tool requires additional information, ask the customer for the required data.
        Save the return value (the workflow ID) as it is required by the other tools.
        If the tool says the account cannot be opened, explain the reason to the customer and do not continue.

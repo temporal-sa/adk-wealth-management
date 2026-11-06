@@ -8,6 +8,7 @@ from temporalio.workflow import ActivityConfig
 from common.user_message import ProcessUserMessageInput, ChatInteraction
 from common.status_update import StatusUpdate
 from common.agent_constants import (
+    HANDOFF_PROMPT_PREFIX,
     BENE_AGENT_NAME, BENE_HANDOFF, BENE_INSTRUCTIONS,
     INVEST_AGENT_NAME, INVEST_HANDOFF, INVEST_INSTRUCTIONS,
     SUPERVISOR_AGENT_NAME, SUPERVISOR_HANDOFF, SUPERVISOR_INSTRUCTIONS,
@@ -119,7 +120,7 @@ def tool_error_to_model(tool, args: dict, tool_context, error: BaseException) ->
     """on_tool_error_callback: give a failed tool's error to the model, as the OpenAI version does.
 
     Without it, ADK re-raises the error, which fails the workflow (e.g. a Temporal
-    WorkflowAlreadyStartedError) or retries the workflow task forever (e.g. a KeyError).
+    ActivityError) or retries the workflow task forever (e.g. a KeyError).
     Cancellation and Temporal's internal errors are not caught: returning None lets them
     propagate. (Eviction is a BaseException, which never reaches here.)
     """
@@ -234,7 +235,7 @@ def init_agents() -> LlmAgent:
         name=OPEN_ACCOUNT_AGENT_NAME.replace(" ", "_"),
         model=_model(OPEN_ACCOUNT_AGENT_NAME),
         description=OPEN_ACCOUNT_HANDOFF,
-        instruction=OPEN_ACCOUNT_INSTRUCTIONS,
+        instruction=HANDOFF_PROMPT_PREFIX + OPEN_ACCOUNT_INSTRUCTIONS,
         before_tool_callback=remember_client_id,
         on_tool_error_callback=tool_error_to_model,
         tools=[
@@ -250,7 +251,7 @@ def init_agents() -> LlmAgent:
         name=INVEST_AGENT_NAME.replace(" ", "_"),
         model=_model(INVEST_AGENT_NAME),
         description=INVEST_HANDOFF,
-        instruction=INVEST_INSTRUCTIONS,
+        instruction=HANDOFF_PROMPT_PREFIX + INVEST_INSTRUCTIONS,
         # Matches the OpenAI version's handoffs: Investment -> Open Account or Supervisor, not Beneficiary
         disallow_transfer_to_peers=True,
         before_tool_callback=remember_client_id,
@@ -274,7 +275,7 @@ def init_agents() -> LlmAgent:
         name=BENE_AGENT_NAME.replace(" ", "_"),
         model=_model(BENE_AGENT_NAME),
         description=BENE_HANDOFF,
-        instruction=BENE_INSTRUCTIONS,
+        instruction=HANDOFF_PROMPT_PREFIX + BENE_INSTRUCTIONS,
         # Matches the OpenAI version's handoffs: Beneficiary -> Supervisor only, not Investment
         disallow_transfer_to_peers=True,
         before_tool_callback=remember_client_id,
@@ -298,7 +299,7 @@ def init_agents() -> LlmAgent:
         name=SUPERVISOR_AGENT_NAME.replace(" ", "_"),
         model=_model(SUPERVISOR_AGENT_NAME),
         description=SUPERVISOR_HANDOFF,
-        instruction=SUPERVISOR_INSTRUCTIONS,
+        instruction=HANDOFF_PROMPT_PREFIX + SUPERVISOR_INSTRUCTIONS,
         before_tool_callback=remember_client_id,
         on_tool_error_callback=tool_error_to_model,
         sub_agents=[beneficiary_agent, investment_agent],
@@ -317,6 +318,9 @@ class WealthManagementWorkflow:
         # Latest state reported by each open-account child workflow, keyed by its workflow ID.
         # Read by the get_account_opening_status tool.
         self.account_opening_states: dict[str, str] = {}
+        # Account openings (child workflows) started in this conversation. Each opening's
+        # workflow ID ends with its number, so every request starts a new opening.
+        self.account_openings_started = 0
         # KYC guard (see approve_kyc): the number of the customer message being handled, the
         # client details fetched for each account opening this turn, and the turn in which
         # they were shown to the customer, keyed by the opening's workflow ID.
@@ -394,7 +398,7 @@ class WealthManagementWorkflow:
             #   - Wait for workflow.all_handlers_finished() and drain the pending message and
             #     status queues first, so no customer message or status update is lost.
             #   - Carry the conversation state into the new run: the message history, the
-            #     active agent, the client ID, the account-opening states, and the KYC
+            #     active agent, the client ID, the account-opening states and count, and the KYC
             #     guard's turn tracking.
             #   - Open-account child workflows are started with ParentClosePolicy.TERMINATE,
             #     which also applies when the parent continues-as-new, so an opening waiting

@@ -17,13 +17,8 @@ from temporalio.exceptions import ActivityError, CancelledError, RetryState
 
 import tests.scripted_model as model
 from temporal_supervisor.workflows.supervisor_workflow import init_agents, tool_error_to_model
-from tests.chat_harness import CLIENT_ID, end_chat, say, start_chat
+from tests.chat_harness import FAILING_OPENING, end_chat, say, start_chat
 from tests.scripted_model import text, tool, transfer
-
-
-def open_vacation():
-    model.expect("Open_Account_Agent", tool(
-        "open_new_investment_account", client_id=CLIENT_ID, account_name="Vacation", initial_amount=20000))
 
 
 @pytest.mark.usefixtures("scripted")
@@ -31,18 +26,13 @@ async def test_a_tool_error_goes_to_the_model_and_the_chat_carries_on(client):
     handle = await start_chat(client)
     model.expect("Supervisor_Agent", transfer("Investment_Agent"))
     model.expect("Investment_Agent", transfer("Open_Account_Agent"))
-    open_vacation()
-    model.expect("Open_Account_Agent", text("Your Vacation account opening has started."))
-    await say(handle, "Open Vacation with $20,000")
+    # The stub get_current_client_info activity fails (non-retryable) for this opening
+    model.expect("Open_Account_Agent", tool("get_current_client_info", workflow_id=FAILING_OPENING))
+    model.expect("Open_Account_Agent", text("Sorry, I couldn't retrieve your details."))
+    turn = await say(handle, "Show my details for my Vacation account opening")
 
-    # The first opening is still running (nothing polls its task queue), so starting a
-    # child workflow with the same ID raises WorkflowAlreadyStartedError in the tool
-    open_vacation()
-    model.expect("Open_Account_Agent", text("That account is already being opened."))
-    turn = await say(handle, "Open Vacation with $20,000")
-
-    assert "'error': 'Tool open_new_investment_account failed" in turn.json_response
-    assert turn.text_response == "That account is already being opened."
+    assert "'error': 'Tool get_current_client_info failed" in turn.json_response
+    assert turn.text_response == "Sorry, I couldn't retrieve your details."
     assert (await handle.describe()).status == WorkflowExecutionStatus.RUNNING
 
     model.expect("Open_Account_Agent", text("Anything else?"))
