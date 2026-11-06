@@ -7,12 +7,19 @@ and stub activities registered under the real activity names.
   nudge gets nothing either, so the customer never sees an empty chat bubble.
 - The account-opening status tool reports what the open-account workflow last
   signalled, not what the agent remembers.
+- Every request to open an account starts a new account opening (child workflow),
+  with its own KYC, even for an account name opened earlier in the chat.
 
 Requires the Temporal dev server (downloaded automatically on first run).
 No GEMINI_API_KEY or Redis needed.
 """
 
+import asyncio
+
 import pytest
+from temporalio import activity
+from temporalio.client import WorkflowExecutionStatus
+from temporalio.worker import Worker
 
 import tests.scripted_model as model
 from common.account_context import UpdateAccountOpeningStateInput
@@ -20,7 +27,9 @@ from temporal_supervisor.workflows.supervisor_workflow import (
     EMPTY_RESPONSE_FALLBACK,
     WealthManagementWorkflow,
 )
-from tests.chat_harness import CLIENT_ID, end_chat, say as say_turn, start_chat
+from temporal_supervisor.task_queues import OPEN_ACCOUNT_TASK_QUEUE
+from temporal_supervisor.workflows.open_account_workflow import OpenInvestmentAccountWorkflow
+from tests.chat_harness import CLIENT_DETAILS, CLIENT_ID, end_chat, kyc_approvals, say as say_turn, start_chat
 from tests.scripted_model import empty, text, tool, transfer
 
 pytestmark = pytest.mark.usefixtures("scripted")
@@ -89,7 +98,7 @@ async def test_repeated_empty_reply_falls_back_to_a_message(client):
 
 async def test_status_tool_reports_the_state_the_open_account_workflow_signalled(client):
     handle = await start_chat(client)
-    opening_id = "OpenAccount-test-123-Bike"
+    opening_id = "OpenAccount-test-123-Bike-1"
     rolled_back = "Rolled back. The account was not opened: The custodian rejected the account registration."
     await handle.signal(
         WealthManagementWorkflow.update_account_opening_state,
@@ -110,28 +119,75 @@ async def test_status_tool_reports_the_state_the_open_account_workflow_signalled
     await end_chat(handle)
 
 
-async def test_reopening_an_account_does_not_report_the_previous_openings_status(client):
-    # Opening the same account name again reuses the workflow ID. Until the new opening
-    # reports in, its status must not be the earlier opening's rollback.
+@activity.defn(name="get_client")
+async def stub_get_client(client_id: str) -> dict:
+    return CLIENT_DETAILS
+
+
+async def child_state(client, workflow_id: str, expected: str) -> None:
+    child = client.get_workflow_handle_for(OpenInvestmentAccountWorkflow.run, workflow_id)
+    for _ in range(200):
+        if await child.query(OpenInvestmentAccountWorkflow.get_current_state) == expected:
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"{workflow_id} never reached {expected!r}")
+
+
+async def test_every_request_to_open_an_account_starts_a_new_opening_with_its_own_kyc(client):
+    # Opening "Vacation" twice in one chat starts two child workflows, numbered by the
+    # openings started in the chat, even while the first is still waiting. The second needs
+    # its own KYC: the confirmation for the first opening doesn't approve it.
     handle = await start_chat(client)
-    opening_id = f"OpenAccount-{handle.id}-{CLIENT_ID}-Vacation"
-    await handle.signal(
-        WealthManagementWorkflow.update_account_opening_state,
-        UpdateAccountOpeningStateInput(
-            account_name="Vacation", workflow_id=opening_id,
-            state="Rolled back. The account was not opened: The custodian rejected the account registration."),
-    )
+    first = f"OpenAccount-{handle.id}-{CLIENT_ID}-Vacation-1"
+    second = f"OpenAccount-{handle.id}-{CLIENT_ID}-Vacation-2"
+    details = (f"First Name: {CLIENT_DETAILS['first_name']}\nLast Name: {CLIENT_DETAILS['last_name']}\n"
+               f"Email: {CLIENT_DETAILS['email']}\nIs this information correct?")
+    open_vacation = tool("open_new_investment_account", client_id=CLIENT_ID, account_name="Vacation",
+                         initial_amount=13000)
 
-    model.expect("Supervisor_Agent", transfer("Investment_Agent"))
-    model.expect("Investment_Agent", transfer("Open_Account_Agent"))
-    model.expect("Open_Account_Agent", tool(
-        "open_new_investment_account", client_id=CLIENT_ID, account_name="Vacation", initial_amount=20000))
-    model.expect("Open_Account_Agent", tool("get_account_opening_status", workflow_id=opening_id))
-    model.expect("Open_Account_Agent", text("Your Vacation account opening has started."))
-    turn = await say_turn(handle, "Open Vacation with $20,000")
+    # The open-account workflows run, with the client record from a stub activity
+    async with Worker(client, task_queue=OPEN_ACCOUNT_TASK_QUEUE,
+                      workflows=[OpenInvestmentAccountWorkflow], activities=[stub_get_client]):
+        model.expect("Supervisor_Agent", transfer("Investment_Agent"))
+        model.expect("Investment_Agent", transfer("Open_Account_Agent"))
+        model.expect("Open_Account_Agent", open_vacation)
+        model.expect("Open_Account_Agent", tool("get_current_client_info", workflow_id=first))
+        model.expect("Open_Account_Agent", text(details))
+        turn = await say_turn(handle, "Open Vacation with $13,000")
+        assert first in turn.json_response
+        await child_state(client, first, "Waiting KYC")
 
-    assert opening_id in turn.json_response
-    assert "{'result': 'Initializing'}" in turn.json_response
-    assert "Rolled back" not in turn.json_response
-    await end_chat(handle)
+        model.expect("Open_Account_Agent", tool("approve_kyc", workflow_id=first))
+        model.expect("Open_Account_Agent", text("Thanks. Your account is waiting for compliance review."))
+        await say_turn(handle, "Yes")
+        assert kyc_approvals == [first]
+        # What the real approve_kyc activity does
+        await client.get_workflow_handle(first).signal(OpenInvestmentAccountWorkflow.verify_kyc)
+        await child_state(client, first, "Waiting Compliance Review")
+
+        # The same request again starts a second opening. Approving its KYC straight away,
+        # on the strength of the first opening's confirmation, is refused.
+        model.expect("Open_Account_Agent", open_vacation)
+        model.expect("Open_Account_Agent", tool("approve_kyc", workflow_id=second))
+        model.expect("Open_Account_Agent", tool("get_current_client_info", workflow_id=second))
+        model.expect("Open_Account_Agent", text(details))
+        turn = await say_turn(handle, "Open Vacation with $13,000")
+        assert second in turn.json_response
+        assert "KYC was not approved" in turn.json_response
+        assert kyc_approvals == [first]
+        await child_state(client, second, "Waiting KYC")
+
+        model.expect("Open_Account_Agent", tool("approve_kyc", workflow_id=second))
+        model.expect("Open_Account_Agent", text("Thanks. Your account is waiting for compliance review."))
+        await say_turn(handle, "Yes")
+        assert kyc_approvals == [first, second]
+        await client.get_workflow_handle(second).signal(OpenInvestmentAccountWorkflow.verify_kyc)
+        await child_state(client, second, "Waiting Compliance Review")
+
+        # Both openings are children of the chat, still running
+        for opening in (first, second):
+            description = await client.get_workflow_handle(opening).describe()
+            assert description.status == WorkflowExecutionStatus.RUNNING
+            assert description.parent_id == handle.id
+        await end_chat(handle)
 

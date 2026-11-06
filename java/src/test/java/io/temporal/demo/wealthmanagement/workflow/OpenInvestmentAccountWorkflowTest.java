@@ -53,7 +53,7 @@ class OpenInvestmentAccountWorkflowTest {
     private static final String CLIENT_ID = "123";
     private static final String ACCOUNT_NAME = "College Fund";
     private static final String INVESTMENT_ID = "i-test";
-    private static final String CHILD_ID = "OpenAccount-parent-" + CLIENT_ID + "-" + ACCOUNT_NAME;
+    private static final String CHILD_ID = "OpenAccount-parent-" + CLIENT_ID + "-" + ACCOUNT_NAME + "-1";
 
     private TestWorkflowEnvironment testEnv;
     private WorkflowClient client;

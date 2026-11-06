@@ -222,14 +222,18 @@ cd src/temporal_supervisor
 ./localsendcomplianceapproval.sh <Child Workflow ID>
 ```
 
-The child workflow ID has the form `OpenAccount-<chat workflow ID>-<client ID>-<account name>`, for example
-`OpenAccount-adk-temporal-agent-k3j9x2p1q8z-123-Vacation`. The chat UI doesn't show it. Find it in the Temporal UI
+The child workflow ID has the form `OpenAccount-<chat workflow ID>-<client ID>-<account name>-<n>`, where `<n>`
+is the number of account openings started so far in the chat, counting this one (1, 2, 3, ...), for example
+`OpenAccount-adk-temporal-agent-k3j9x2p1q8z-123-Vacation-1`. The chat UI doesn't show it. Find it in the Temporal UI
 (http://localhost:8233 locally): look for the running `OpenInvestmentAccountWorkflow`, a child of the chat's
 `WealthManagementWorkflow`, or list the running ones with:
 
 ```bash
 temporal workflow list --query "WorkflowType='OpenInvestmentAccountWorkflow' AND ExecutionStatus='Running'"
 ```
+
+Each request to open an account starts a new account opening, so if the customer opened the same account
+name more than once in the chat, several may be running: pick the one with the highest `<n>` for the latest request.
 
 Quote the ID if the account name contains spaces. If you send the signal before KYC is done, the workflow
 holds it until KYC completes.
@@ -341,8 +345,11 @@ Investment Agent hands off to an Open Account Agent, whose tools drive that work
   *Rolled back*. Otherwise it ends with *Complete*. See [Failure Scenarios](#failure-scenarios-chaos-panel),
   including the welcome-bonus bug.
 
-Each opening is one workflow per chat, client and account name. Opening an account with the same name
-again in the same chat (for example after a rollback) reuses the ID once the earlier opening has finished.
+Every request to open an account starts a new account opening (a new child workflow) with its own KYC, even
+when an earlier opening with the same account name in the same chat is still in progress or has finished (for
+example after a rollback). The chat workflow counts the openings it has started and adds the count to the child
+workflow ID, so two "Vacation" openings in one chat are `...-123-Vacation-1` and `...-123-Vacation-2`. The KYC
+guard is per opening: confirming the details for one opening doesn't approve KYC for another.
 
 The chat itself runs as a single workflow run. A long conversation in production would need continue-as-new
 (see the TODO in `workflows/supervisor_workflow.py`).

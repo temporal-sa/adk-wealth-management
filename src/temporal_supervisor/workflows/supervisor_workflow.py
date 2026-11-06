@@ -120,7 +120,7 @@ def tool_error_to_model(tool, args: dict, tool_context, error: BaseException) ->
     """on_tool_error_callback: give a failed tool's error to the model, as the OpenAI version does.
 
     Without it, ADK re-raises the error, which fails the workflow (e.g. a Temporal
-    WorkflowAlreadyStartedError) or retries the workflow task forever (e.g. a KeyError).
+    ActivityError) or retries the workflow task forever (e.g. a KeyError).
     Cancellation and Temporal's internal errors are not caught: returning None lets them
     propagate. (Eviction is a BaseException, which never reaches here.)
     """
@@ -318,6 +318,9 @@ class WealthManagementWorkflow:
         # Latest state reported by each open-account child workflow, keyed by its workflow ID.
         # Read by the get_account_opening_status tool.
         self.account_opening_states: dict[str, str] = {}
+        # Account openings (child workflows) started in this conversation. Each opening's
+        # workflow ID ends with its number, so every request starts a new opening.
+        self.account_openings_started = 0
         # KYC guard (see approve_kyc): the number of the customer message being handled, the
         # client details fetched for each account opening this turn, and the turn in which
         # they were shown to the customer, keyed by the opening's workflow ID.
@@ -395,7 +398,7 @@ class WealthManagementWorkflow:
             #   - Wait for workflow.all_handlers_finished() and drain the pending message and
             #     status queues first, so no customer message or status update is lost.
             #   - Carry the conversation state into the new run: the message history, the
-            #     active agent, the client ID, the account-opening states, and the KYC
+            #     active agent, the client ID, the account-opening states and count, and the KYC
             #     guard's turn tracking.
             #   - Open-account child workflows are started with ParentClosePolicy.TERMINATE,
             #     which also applies when the parent continues-as-new, so an opening waiting
