@@ -519,6 +519,11 @@ class WealthManagementWorkflow:
     def get_chat_history(self) -> list[ChatInteraction]:
         return self.chat_history
 
+    @workflow.query
+    def get_account_opening_states(self) -> dict[str, str]:
+        """The latest state of each account opening (child workflow ID -> state)."""
+        return self.account_opening_states
+
     @workflow.signal
     async def end_workflow(self):
         self.end_workflow_flag = True

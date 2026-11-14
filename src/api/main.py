@@ -26,6 +26,8 @@ temporal_client: Optional[Client] = None
 task_queue: Optional[str] = None
 
 SESSION_COOKIE = "wm_session"
+# The state an account opening (OpenInvestmentAccountWorkflow) waits in for the compliance approval
+WAITING_COMPLIANCE_REVIEW = "Waiting Compliance Review"
 # The built web app (src/frontend/build); served at / when present, e.g. in the container image.
 FRONTEND_DIR = Path(os.getenv("FRONTEND_DIR", Path(__file__).resolve().parents[1] / "frontend" / "build"))
 
@@ -132,6 +134,29 @@ async def end_chat(workflow_id: str = Depends(owned_workflow_id)):
         return {"message": "End chat signal sent."}
     except TemporalError as e:
         return {}
+
+@api.post("/approve-compliance")
+async def approve_compliance(workflow_id: str = Depends(owned_workflow_id)):
+    """Play the compliance officer: approve this chat's account openings waiting for review.
+
+    Sends compliance_approved to each of the chat's open-account child workflows in
+    "Waiting Compliance Review", as run_send_compliance_approval.py does from a terminal.
+    """
+    try:
+        states = await temporal_client.get_workflow_handle(workflow_id).query(
+            WealthManagementWorkflow.get_account_opening_states
+        )
+        waiting = [
+            child_id
+            for child_id, state in states.items()
+            if state == WAITING_COMPLIANCE_REVIEW and child_id.startswith(f"OpenAccount-{workflow_id}-")
+        ]
+        for child_id in waiting:
+            await temporal_client.get_workflow_handle(child_id).signal("compliance_approved")
+        return {"approved": waiting}
+    except (RPCError, TemporalError) as e:
+        raise HTTPException(status_code=502, detail=f"Could not approve: {e}")
+
 
 @api.post("/start-workflow")
 async def start_workflow(session: str = Depends(session_id)):

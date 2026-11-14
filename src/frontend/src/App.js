@@ -19,6 +19,7 @@ function App() {
   const [sessionId, setSessionId] = useState(null);
   const [isChatActive, setIsChatActive] = useState(false);
   const [statusContent, setStatusContent] = useState('');
+  const [isApproving, setIsApproving] = useState(false);
   const chatWindowRef = useRef(null);
   const eventCountRef = useRef(0);
   // Polling calls the latest fetchChatHistory through this ref, so the interval
@@ -167,6 +168,25 @@ function App() {
     }
   };
 
+  // Plays the back-office compliance officer: approves this chat's account openings that wait
+  // for compliance review (the hosted demo has no terminal for localsendcomplianceapproval.sh).
+  const handleApproveCompliance = async () => {
+    if (!workflow_id) {
+      return;
+    }
+    setIsApproving(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/approve-compliance?workflow_id=${workflow_id}`, { method: 'POST' });
+      if (!response.ok) {
+        console.error('Error approving compliance review:', response.status);
+      }
+    } catch (error) {
+      console.error('Error approving compliance review:', error);
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
   const handleToggleChatState = () => {
     if (isChatActive) {
       handleEndChat();
@@ -249,6 +269,11 @@ function App() {
         {statusContent && (
           <div className="status-area">
             {statusContent}
+            {isChatActive && statusContent.includes('Waiting Compliance Review') && (
+              <button className="approve-button" onClick={handleApproveCompliance} disabled={isApproving}>
+                {isApproving ? 'Approving...' : 'Approve compliance review'}
+              </button>
+            )}
           </div>
         )}
         <div className="chat-window" ref={chatWindowRef}>
