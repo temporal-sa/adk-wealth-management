@@ -35,6 +35,9 @@ with workflow.unsafe.imports_passed_through():
 
 MODEL = "gemini-2.5-flash"
 APP_NAME = "wealth-management"
+# A chat with no customer message and no account-opening status update for this long ends
+# by itself, so chats abandoned without End Chat don't run forever.
+CHAT_IDLE_TIMEOUT = timedelta(hours=1)
 # Sent when the model ends a turn with no text and no tool call, which Gemini occasionally does
 EMPTY_RESPONSE_NUDGE = "Please continue, following your instructions."
 EMPTY_RESPONSE_FALLBACK = "Sorry, I didn't catch that. Could you please say it again?"
@@ -369,13 +372,20 @@ class WealthManagementWorkflow:
         )
 
         while True:
-            await workflow.wait_condition(
-                lambda: (
-                    not self.pending_chat_messages.empty()
-                    or not self.pending_status_updates.empty()
-                    or self.end_workflow_flag
+            try:
+                await workflow.wait_condition(
+                    lambda: (
+                        not self.pending_chat_messages.empty()
+                        or not self.pending_status_updates.empty()
+                        or self.end_workflow_flag
+                    ),
+                    timeout=CHAT_IDLE_TIMEOUT,
                 )
-            )
+            except asyncio.TimeoutError:
+                # Nobody has used this chat for a while (e.g. the browser tab was closed
+                # without End Chat): end it rather than keep it open forever.
+                workflow.logger.info(f"Ending chat {self.wf_id}: idle for {CHAT_IDLE_TIMEOUT}")
+                return
 
             if self.end_workflow_flag:
                 return
