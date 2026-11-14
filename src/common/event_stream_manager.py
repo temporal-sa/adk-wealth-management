@@ -1,28 +1,25 @@
 import json
 import time
-import os
 from typing import List, Dict, Any, Union
 from enum import Enum
 from dataclasses import asdict
 
-import redis.asyncio as redis
-
+from common.redis_config import RedisConfig
 from common.user_message import ChatInteraction
 from common.status_update import StatusUpdate
+
+# Chat event streams expire this long after their last event, so abandoned chats don't
+# pile up in Redis.
+EVENTS_TTL_SECONDS = 24 * 60 * 60
+
 
 class EventType(str, Enum):
     CHAT_INTERACTION = "chat_interaction"
     STATUS_UPDATE = "status_update"
 
 class EventStreamManager:
-    def __init__(self, redis_host: str = None, redis_port: int = None):
-        self.redis_host = redis_host or os.getenv("REDIS_HOST", "localhost")
-        self.redis_port = redis_port or int(os.getenv("REDIS_PORT", "6379"))
-        self.redis_client = redis.Redis(
-            host=self.redis_host,
-            port=self.redis_port,
-            decode_responses=True
-        )
+    def __init__(self, config: RedisConfig = None):
+        self.redis_client = (config or RedisConfig()).async_client()
 
     def _get_stream_key(self, workflow_id: str) -> str:
         return f"events:{workflow_id}"
@@ -42,6 +39,7 @@ class EventStreamManager:
         event = {"type": event_type.value, "content": content_dict}
         event_json = json.dumps(event)
         new_length = await self.redis_client.rpush(stream_key, event_json)
+        await self.redis_client.expire(stream_key, EVENTS_TTL_SECONDS)
         return new_length
 
     async def get_events_from_index(self, workflow_id: str, from_index: int = 0) -> List[Dict[str, Any]]:

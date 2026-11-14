@@ -20,7 +20,7 @@ class ClaimCheckCodec(PayloadCodec):
 
     def __init__(self, config: RedisConfig):
         # TODO: async cleanup challenge — redis_client is not closed on shutdown
-        self.redis_client = aioredis.Redis(host=config.hostname, port=config.port)
+        self.redis_client = config.async_client(decode_responses=False)
 
     async def encode(self, payloads: Iterable[Payload]) -> List[Payload]:
         return [await self._encode_payload(p) for p in payloads]
