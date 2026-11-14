@@ -37,8 +37,10 @@ The API reads the same environment variables as the worker (`TEMPORAL_ADDRESS`, 
 
 The web app calls the API on its own origin: the React dev server proxies `/api` to `http://127.0.0.1:8000`, and
 in the container image the API serves the built web app at `/` itself (from `src/frontend/build` when it exists,
-or `FRONTEND_DIR`). CORS (`CORS_ORIGINS`, default `http://localhost:3000,http://127.0.0.1:3000`) only matters
-when the app is served from another origin.
+or `FRONTEND_DIR`). Set `CORS_ORIGINS` (comma-separated) only if you serve the app from another origin.
+
+The API also serves a codec endpoint for the Temporal UI at `/codec` (`/codec/decode`, `/codec/encode`), to see
+claim-checked payloads; see [The API's codec endpoint](../temporal_supervisor/README.md#the-apis-codec-endpoint).
 
 ## Sessions
 

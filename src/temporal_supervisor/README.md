@@ -127,8 +127,13 @@ redis-server
 Note that the application assumes you only have one Redis server that is used by the application for storing the 
 conversation history and is also used if Claim Check has been enabled. 
 
-Be aware that using a claim check pattern introduces performance costs by doing remote calls to Redis for every payload. 
-Also, make sure your Redis implementation is rock solid as any downtime will directly affect your workflows. 
+To keep the payloads in an S3 bucket instead of Redis, also set `CLAIM_CHECK_S3_BUCKET` to the bucket's name. Each
+payload is stored as the object `claim-check/<GUID>`. The AWS credentials and region come from the standard AWS
+environment (a profile, `AWS_REGION`, a pod's role; `AWS_ENDPOINT_URL_S3` for an S3-compatible store). The hosted
+deployment does this. S3 mode is Python-only: the Java worker's codec still uses Redis.
+
+Be aware that using a claim check pattern introduces performance costs by doing remote calls to the store for every payload. 
+Also, make sure your store is rock solid as any downtime will directly affect your workflows. 
 
 ## Run Codec Server for Claim Check (optional)
 If you have decided to set up the Claim Check above, you will 
@@ -172,6 +177,19 @@ As you run through different scenarios, you'll be able to see the decoded values
 If you remove the codec server settings, you won't be able to see anything other than a BASE64 Encoded ID.
 
 ![](../../images/encoded-input.png)
+
+### The API's codec endpoint
+
+The API serves the same decoding at `/codec` (`src/api/codec.py`), so a deployed copy of the demo needs no separate
+codec server: set the Temporal UI's codec endpoint to `https://<the demo's host>/codec` (locally
+`http://127.0.0.1:8000/codec`). Its `/encode` returns payloads unchanged, so the endpoint never writes to the store.
+
+With `CODEC_AUTH=jwt` (the hosted setup) it only answers the Temporal Cloud UI with the user's access token: turn on
+**Pass the user access token** in the UI's codec settings. The token is verified against Temporal Cloud's JWKS
+(`CODEC_JWKS_URL`, default `https://login.tmprl.cloud/.well-known/jwks.json`) and audience (`CODEC_JWT_AUDIENCE`,
+default `https://saas-api.tmprl.cloud`). The local dev server's UI sends no token, so leave `CODEC_AUTH` at its
+default, `none`, locally. Browsers may call it from `https://cloud.temporal.io`, `http://localhost:8233`, the
+platform's `TEMPORAL_UI_URL` and `CODEC_CORS_ORIGINS`.
 
 ## Running the Demo 
 
@@ -307,6 +325,8 @@ claim check and cloud settings from the files in the project root.
 | `LLM_MAX_CALLS_PER_SECOND` | unlimited | Rate limit for model calls across all workers |
 | `REDIS_HOST`, `REDIS_PORT` | `localhost`, `6379` | Redis for chat history, events and the chaos flags |
 | `USE_CLAIM_CHECK` | `false` | Claim check codec |
+| `CLAIM_CHECK_S3_BUCKET` | unset | Keep claim-checked payloads in this S3 bucket instead of Redis |
+| `CODEC_AUTH` | `none` | `jwt`: the API's `/codec` endpoint requires a Temporal Cloud access token |
 
 The worker uses the Temporal SDK's [environment configuration](https://docs.temporal.io/develop/environment-configuration),
 so a `TEMPORAL_PROFILE` from a config file works too.

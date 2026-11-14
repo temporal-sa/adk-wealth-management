@@ -14,7 +14,6 @@ from aiohttp import hdrs, web
 from google.protobuf import json_format
 from temporalio.api.common.v1 import Payload, Payloads
 
-from common.redis_config import RedisConfig
 from temporal_supervisor.claim_check.claim_check_codec import ClaimCheckCodec
 
 TEMPORAL_UI_ORIGIN = "http://localhost:8233"
@@ -53,7 +52,7 @@ def build_codec_server() -> web.Application:
         set_cors_headers(req, resp)
         return resp
 
-    codec = ClaimCheckCodec(config=RedisConfig())
+    codec = ClaimCheckCodec()
     app = web.Application()
     app.add_routes(
         [

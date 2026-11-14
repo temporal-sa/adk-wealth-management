@@ -19,6 +19,8 @@ from common.client_helper import ClientHelper
 from common.redis_config import RedisConfig
 from common.session_scope import is_session_id, new_chat_workflow_id, new_session_id, owns_workflow, scope
 from common.user_message import ProcessUserMessageInput
+from api.codec import build_codec_app, codec_cors_origins
+from temporal_supervisor.claim_check.claim_check_codec import ClaimCheckCodec
 from temporal_supervisor.claim_check.claim_check_plugin import ClaimCheckPlugin
 from temporal_supervisor.workflows.supervisor_workflow import WealthManagementWorkflow
 
@@ -51,15 +53,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(lifespan=lifespan)
 
-# Only needed when the web app is served from another origin than the API. Locally the React
-# dev server proxies /api to the API, and in the container the API serves the web app itself.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(","),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Only needed when the web app is served from another origin than the API (CORS_ORIGINS, e.g.
+# http://localhost:3000). Locally the React dev server proxies /api to the API, and in the
+# container the API serves the web app itself. The codec endpoint has CORS of its own; as this
+# middleware answers preflights first, it allows the codec's origins too.
+if os.getenv("CORS_ORIGINS"):
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=os.getenv("CORS_ORIGINS").split(",") + codec_cors_origins(),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 def session_id(request: Request, response: Response) -> str:
@@ -225,6 +230,8 @@ async def reset_chaos(session: str = Depends(session_id)):
 
 
 app.include_router(api, prefix="/api")
+# The Temporal UI's codec server (Data Encoder) endpoint: <this host>/codec (see api/codec.py)
+app.mount("/codec", build_codec_app(ClaimCheckCodec()))
 
 if FRONTEND_DIR.is_dir():
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
