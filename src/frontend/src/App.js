@@ -27,7 +27,6 @@ function App() {
   let [isPolling, setIsPolling] = useState(false);
   const [isWaitingForAIResponse, setIsWaitingForAIResponse] = useState(false);
   const defaultHeaderText = 'Chat session started.';
-  const workflow_id_prefix = 'adk-temporal-agent-';
   const [workflow_id, setWorkflowId] = useState('');
   const [showChaos, setShowChaos] = useState(loadShowChaos);
 
@@ -81,17 +80,16 @@ function App() {
 
   const handleStartChat = async () => {
     try {
-      let response;
-      const newSessionId = Math.random().toString(36).substring(2, 15);
-      const newWorkflowId = workflow_id_prefix + newSessionId;
-      console.log(`Getting ready to start workflow with id ${newWorkflowId}`);
-      response = await fetch(`${API_BASE_URL}/start-workflow?workflow_id=${newWorkflowId}`, { method: 'POST' });
+      // The API picks the chat's workflow ID, scoped to this browser's session cookie
+      const response = await fetch(`${API_BASE_URL}/start-workflow`, { method: 'POST' });
       if (response.ok) {
         const result = await response.json();
 
         // check to see if it has truly been started
         if (result.message === 'Workflow started.') {
-          console.log('Workflow has been started.');
+          const newWorkflowId = result.workflow_id;
+          const newSessionId = newWorkflowId;
+          console.log(`Workflow ${newWorkflowId} has been started.`);
           setWorkflowId(newWorkflowId);
           setMessages([{text: defaultHeaderText, type: 'bot'}]);
           setIsChatActive(true);

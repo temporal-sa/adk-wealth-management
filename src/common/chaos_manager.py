@@ -4,9 +4,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-import redis.asyncio as redis
-
 from common.redis_config import RedisConfig
+from common.session_scope import SESSION_TTL_SECONDS, scope as default_scope
 
 
 class ChaosFlag(str, Enum):
@@ -61,8 +60,6 @@ CHAOS_FLAGS: List[ChaosFlagInfo] = [
     ),
 ]
 
-_FLAGS_KEY = "chaos:flags"
-_EVENTS_KEY = "chaos:events"
 _MAX_EVENTS = 50
 
 
@@ -71,23 +68,29 @@ class ChaosManager:
 
     Flags are read at runtime by activities and the model (ChaosAwareGemini), so a failure can
     be switched on and off from the UI without restarting the worker.
+
+    Flags and events belong to one browser session (scope, see common.session_scope), so one
+    person's chaos switches only affect their own chats.
     """
 
-    def __init__(self, config: RedisConfig = None):
-        config = config or RedisConfig()
-        self.redis_client = redis.Redis(host=config.hostname, port=config.port, decode_responses=True)
+    def __init__(self, scope: Optional[str] = None, config: RedisConfig = None):
+        self.scope = scope or default_scope()
+        self._flags_key = f"chaos:{self.scope}:flags"
+        self._events_key = f"chaos:{self.scope}:events"
+        self.redis_client = (config or RedisConfig()).async_client()
 
     async def is_enabled(self, flag: ChaosFlag) -> bool:
-        return await self.redis_client.hget(_FLAGS_KEY, flag.value) == "1"
+        return await self.redis_client.hget(self._flags_key, flag.value) == "1"
 
     async def set_enabled(self, flag: ChaosFlag, enabled: bool) -> None:
         if enabled:
-            await self.redis_client.hset(_FLAGS_KEY, flag.value, "1")
+            await self.redis_client.hset(self._flags_key, flag.value, "1")
+            await self.redis_client.expire(self._flags_key, SESSION_TTL_SECONDS)
         else:
-            await self.redis_client.hdel(_FLAGS_KEY, flag.value)
+            await self.redis_client.hdel(self._flags_key, flag.value)
 
     async def get_flags(self) -> Dict[str, bool]:
-        enabled = await self.redis_client.hgetall(_FLAGS_KEY)
+        enabled = await self.redis_client.hgetall(self._flags_key)
         return {info.flag.value: enabled.get(info.flag.value) == "1" for info in CHAOS_FLAGS}
 
     async def record_event(
@@ -100,14 +103,15 @@ class ChaosManager:
             "attempt": attempt,
             "workflow_id": workflow_id,
         }
-        await self.redis_client.lpush(_EVENTS_KEY, json.dumps(event))
-        await self.redis_client.ltrim(_EVENTS_KEY, 0, _MAX_EVENTS - 1)
+        await self.redis_client.lpush(self._events_key, json.dumps(event))
+        await self.redis_client.ltrim(self._events_key, 0, _MAX_EVENTS - 1)
+        await self.redis_client.expire(self._events_key, SESSION_TTL_SECONDS)
 
     async def get_events(self, limit: int = 20) -> List[Dict[str, Any]]:
-        return [json.loads(e) for e in await self.redis_client.lrange(_EVENTS_KEY, 0, limit - 1)]
+        return [json.loads(e) for e in await self.redis_client.lrange(self._events_key, 0, limit - 1)]
 
     async def clear_events(self) -> None:
-        await self.redis_client.delete(_EVENTS_KEY)
+        await self.redis_client.delete(self._events_key)
 
     async def close(self):
         await self.redis_client.aclose()

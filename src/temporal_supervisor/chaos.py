@@ -10,6 +10,7 @@ import logging
 from temporalio import activity
 
 from common.chaos_manager import ChaosFlag, ChaosManager
+from common.session_scope import current_activity_scope
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,8 @@ SLOW_SAGA_DELAY_SECONDS = 4
 
 async def is_enabled(flag: ChaosFlag) -> bool:
     # Fail open: if Redis is unreachable, chaos is off rather than breaking the demo.
-    manager = ChaosManager()
+    # The flags are those of the browser session whose chat this activity belongs to.
+    manager = ChaosManager(current_activity_scope())
     try:
         return await manager.is_enabled(flag)
     except Exception as e:
@@ -31,7 +33,7 @@ async def is_enabled(flag: ChaosFlag) -> bool:
 async def record_event(flag: ChaosFlag) -> None:
     """Log an injected failure for the chaos panel."""
     info = activity.info()
-    manager = ChaosManager()
+    manager = ChaosManager(current_activity_scope())
     try:
         await manager.record_event(flag, info.activity_type, info.attempt, info.workflow_id)
     except Exception as e:
