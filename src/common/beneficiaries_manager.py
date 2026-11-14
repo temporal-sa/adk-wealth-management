@@ -4,6 +4,8 @@ import uuid
 import logging
 from typing import List, Dict, Any
 
+from common.data_store import JsonDocument
+
 script_dir = os.path.dirname(__file__)
 relative_path = '../../data/beneficiaries.json'
 BENEFICIARIES_FILE = os.path.join(script_dir, relative_path)
@@ -14,13 +16,11 @@ logger.setLevel(logging.INFO)
 class BeneficiariesManager:
     def __init__(self, file_path: str = BENEFICIARIES_FILE):
         self.file_path = file_path
+        self.document = JsonDocument("beneficiaries", file_path)
 
     def _load_data(self) -> Dict[str, List[Dict[str, Any]]]:
-        if not os.path.exists(self.file_path) or os.stat(self.file_path).st_size == 0:
-            return {}
         try:
-            with open(self.file_path, 'r') as f:
-                return json.load(f)
+            return self.document.load() or {}
         except json.JSONDecodeError:
             return {}
         except Exception as e:
@@ -29,8 +29,7 @@ class BeneficiariesManager:
 
     def _save_data(self, data: Dict[str, List[Dict[str, Any]]]):
         try:
-            with open(self.file_path, 'w') as f:
-                json.dump(data, f, indent=4)
+            self.document.save(data)
         except Exception as e:
             logger.error(f"Error saving data to '{self.file_path}': {e}")
 
