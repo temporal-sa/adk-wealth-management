@@ -29,11 +29,11 @@ with workflow.unsafe.imports_passed_through():
     from temporalio.google_adk import TemporalModel
     from temporal_supervisor.activities.activity_tool import _activity_tool
     from temporal_supervisor.retry_policies import LLM_RETRY_POLICY, TOOL_RETRY_POLICY
-    from temporal_supervisor.task_queues import LLM_TASK_QUEUE
+    from temporal_supervisor.task_queues import GEMINI_MODEL, LLM_TASK_QUEUE
     from temporalio.exceptions import is_cancelled_exception
 
 
-MODEL = "gemini-2.5-flash"
+MODEL = GEMINI_MODEL
 APP_NAME = "wealth-management"
 # A chat with no customer message and no account-opening status update for this long ends
 # by itself, so chats abandoned without End Chat don't run forever.

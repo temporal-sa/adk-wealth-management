@@ -293,7 +293,10 @@ claim check and cloud settings from the files in the project root.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `GEMINI_API_KEY` | required | Gemini API key (worker). The model is `gemini-2.5-flash`. |
+| `GEMINI_API_KEY` | required | Gemini API key (worker). |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | The Gemini model every agent uses (worker). |
+| `DEMO_DATA_STORE` | `file` | `file`: the sample data in `data/*.json`. `redis`: a copy per browser session in Redis, for a hosted, multi-user deployment. |
+| `REDIS_URL` / `REDIS_PASSWORD` | unset | Redis URL (wins over `REDIS_HOST`/`REDIS_PORT`) or password, when Redis requires one. |
 | `TEMPORAL_ADDRESS` | `127.0.0.1:7233` | Temporal frontend address |
 | `TEMPORAL_NAMESPACE` | `default` | Namespace |
 | `TEMPORAL_API_KEY` | empty | API key auth |

@@ -30,7 +30,7 @@ from common.investment_manager import InvestmentManager, InvestmentAccount
 
 load_dotenv()
 
-MODEL = "gemini-2.5-flash"
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 APP_NAME = "wealth-management"
 USER_ID = "default-user"
 
