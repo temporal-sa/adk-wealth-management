@@ -340,7 +340,8 @@ Investment Agent hands off to an Open Account Agent, whose tools drive that work
   appeared in a reply and the customer has answered since. If something is wrong, the agent calls
   `update_client_details` (an Update), which saves the changes and completes KYC.
 * Compliance: the child then waits in *Waiting Compliance Review* until it receives the `compliance_approved`
-  signal from `localsendcomplianceapproval.sh` / `cloudsendcomplianceapproval.sh`.
+  signal from the web app's **Approve compliance review** button (`POST /api/approve-compliance`), or from
+  `localsendcomplianceapproval.sh` / `cloudsendcomplianceapproval.sh`.
 * Saga: the child then creates the account record (`open_investment`), transfers the initial deposit from the
   client's linked bank account (`debit_linked_account`, balances in `data/funding_accounts.json`) and registers
   the account with the custodian (`register_account`). If a step fails with a non-retryable error, the completed

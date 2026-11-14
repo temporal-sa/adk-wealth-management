@@ -61,11 +61,24 @@ export GEMINI_API_KEY="Your API Key Goes Here"
 * API used by the web application: [src/api/README.md](src/api/README.md)
 * Web application: [src/frontend/README.md](src/frontend/README.md)
 
+## Running Everything in Containers
+
+`docker-compose.yml` runs the Temporal version as it runs when hosted: a Temporal dev server, Redis, the worker,
+and the web app with its API, all from the one `Dockerfile`.
+
+```bash
+GEMINI_API_KEY="Your API Key Goes Here" docker compose up --build
+```
+
+Open http://localhost:8000 for the chat and http://localhost:8233 for the Temporal UI. Each browser session gets
+its own copy of the demo data and its own chaos switches, kept in Redis (`DEMO_DATA_STORE=redis`), so nothing in
+`data/` changes.
+
 ## Resetting the Demo Data
 
-Both versions keep the demo data in JSON files in `data/` and change them as you go (opening and closing
-accounts, adding and deleting beneficiaries, and, in the Temporal version, moving money from the linked bank
-account). To put everything back, run this in the project root:
+Run locally from the scripts, both versions keep the demo data in JSON files in `data/` and change them as you
+go (opening and closing accounts, adding and deleting beneficiaries, and, in the Temporal version, moving money
+from the linked bank account). To put everything back, run this in the project root:
 
 ```bash
 git checkout data/
