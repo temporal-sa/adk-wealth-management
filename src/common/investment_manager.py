@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import uuid
 import argparse
 
+from common.data_store import JsonDocument
+
 script_dir = os.path.dirname(__file__)
 relative_path = '../../data/investments.json'
 INVESTMENTS_FILE = os.path.join(script_dir, relative_path)
@@ -17,23 +19,19 @@ class InvestmentAccount:
 class InvestmentManager:
     def __init__(self, json_file=INVESTMENTS_FILE):
         self.json_file = json_file
+        self.document = JsonDocument("investments", json_file)
         self._load_data()
 
     def _load_data(self):
-        if os.path.exists(self.json_file):
-            with open(self.json_file, 'r') as f:
-                try:
-                    self.data = json.load(f)
-                    if not isinstance(self.data, dict):
-                        self.data = {}
-                except json.JSONDecodeError:
-                    self.data = {}
-        else:
+        try:
+            self.data = self.document.load()
+        except json.JSONDecodeError:
+            self.data = {}
+        if not isinstance(self.data, dict):
             self.data = {}
 
     def _save_data(self):
-        with open(self.json_file, 'w') as f:
-            json.dump(self.data, f, indent=2)
+        self.document.save(self.data, indent=2)
 
     def list_investment_accounts(self, client_id):
         if client_id not in self.data:

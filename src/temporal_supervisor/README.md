@@ -127,8 +127,13 @@ redis-server
 Note that the application assumes you only have one Redis server that is used by the application for storing the 
 conversation history and is also used if Claim Check has been enabled. 
 
-Be aware that using a claim check pattern introduces performance costs by doing remote calls to Redis for every payload. 
-Also, make sure your Redis implementation is rock solid as any downtime will directly affect your workflows. 
+To keep the payloads in an S3 bucket instead of Redis, also set `CLAIM_CHECK_S3_BUCKET` to the bucket's name. Each
+payload is stored as the object `claim-check/<GUID>`. The AWS credentials and region come from the standard AWS
+environment (a profile, `AWS_REGION`, a pod's role; `AWS_ENDPOINT_URL_S3` for an S3-compatible store). The hosted
+deployment does this. S3 mode is Python-only: the Java worker's codec still uses Redis.
+
+Be aware that using a claim check pattern introduces performance costs by doing remote calls to the store for every payload. 
+Also, make sure your store is rock solid as any downtime will directly affect your workflows. 
 
 ## Run Codec Server for Claim Check (optional)
 If you have decided to set up the Claim Check above, you will 
@@ -173,6 +178,19 @@ If you remove the codec server settings, you won't be able to see anything other
 
 ![](../../images/encoded-input.png)
 
+### The API's codec endpoint
+
+The API serves the same decoding at `/codec` (`src/api/codec.py`), so a deployed copy of the demo needs no separate
+codec server: set the Temporal UI's codec endpoint to `https://<the demo's host>/codec` (locally
+`http://127.0.0.1:8000/codec`). Its `/encode` returns payloads unchanged, so the endpoint never writes to the store.
+
+With `CODEC_AUTH=jwt` (the hosted setup) it only answers the Temporal Cloud UI with the user's access token: turn on
+**Pass the user access token** in the UI's codec settings. The token is verified against Temporal Cloud's JWKS
+(`CODEC_JWKS_URL`, default `https://login.tmprl.cloud/.well-known/jwks.json`) and audience (`CODEC_JWT_AUDIENCE`,
+default `https://saas-api.tmprl.cloud`). The local dev server's UI sends no token, so leave `CODEC_AUTH` at its
+default, `none`, locally. Browsers may call it from `https://cloud.temporal.io`, `http://localhost:8233`, the
+platform's `TEMPORAL_UI_URL` and `CODEC_CORS_ORIGINS`.
+
 ## Running the Demo 
 
 You have the option of running the demo [locally](#locally) or on [Temporal Cloud](#temporal-cloud). 
@@ -211,8 +229,9 @@ npm install     # first time only
 npm start
 ```
 
-A new browser window opens where you can interact with the application. The UI expects the API
-at `http://127.0.0.1:8000` (set in `src/frontend/src/config.js`). See [the API README](../api/README.md)
+A new browser window opens at http://localhost:3000 where you can interact with the application. The UI calls
+the API at `/api`, which the React dev server proxies to `http://127.0.0.1:8000` (`"proxy"` in
+`src/frontend/package.json`). See [the API README](../api/README.md)
 and [the frontend README](../frontend/README.md) for details.
 
 If you are opening a new investment account, in another terminal
@@ -293,7 +312,10 @@ claim check and cloud settings from the files in the project root.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `GEMINI_API_KEY` | required | Gemini API key (worker). The model is `gemini-2.5-flash`. |
+| `GEMINI_API_KEY` | required | Gemini API key (worker). |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | The Gemini model every agent uses (worker). |
+| `DEMO_DATA_STORE` | `file` | `file`: the sample data in `data/*.json`. `redis`: a copy per browser session in Redis, for a hosted, multi-user deployment. |
+| `REDIS_URL` / `REDIS_PASSWORD` | unset | Redis URL (wins over `REDIS_HOST`/`REDIS_PORT`) or password, when Redis requires one. |
 | `TEMPORAL_ADDRESS` | `127.0.0.1:7233` | Temporal frontend address |
 | `TEMPORAL_NAMESPACE` | `default` | Namespace |
 | `TEMPORAL_API_KEY` | empty | API key auth |
@@ -304,6 +326,8 @@ claim check and cloud settings from the files in the project root.
 | `LLM_MAX_CALLS_PER_SECOND` | unlimited | Rate limit for model calls across all workers |
 | `REDIS_HOST`, `REDIS_PORT` | `localhost`, `6379` | Redis for chat history, events and the chaos flags |
 | `USE_CLAIM_CHECK` | `false` | Claim check codec |
+| `CLAIM_CHECK_S3_BUCKET` | unset | Keep claim-checked payloads in this S3 bucket instead of Redis |
+| `CODEC_AUTH` | `none` | `jwt`: the API's `/codec` endpoint requires a Temporal Cloud access token |
 
 The worker uses the Temporal SDK's [environment configuration](https://docs.temporal.io/develop/environment-configuration),
 so a `TEMPORAL_PROFILE` from a config file works too.
@@ -337,7 +361,8 @@ Investment Agent hands off to an Open Account Agent, whose tools drive that work
   appeared in a reply and the customer has answered since. If something is wrong, the agent calls
   `update_client_details` (an Update), which saves the changes and completes KYC.
 * Compliance: the child then waits in *Waiting Compliance Review* until it receives the `compliance_approved`
-  signal from `localsendcomplianceapproval.sh` / `cloudsendcomplianceapproval.sh`.
+  signal from the web app's **Approve compliance review** button (`POST /api/approve-compliance`), or from
+  `localsendcomplianceapproval.sh` / `cloudsendcomplianceapproval.sh`.
 * Saga: the child then creates the account record (`open_investment`), transfers the initial deposit from the
   client's linked bank account (`debit_linked_account`, balances in `data/funding_accounts.json`) and registers
   the account with the custodian (`register_account`). If a step fails with a non-retryable error, the completed
@@ -451,18 +476,23 @@ the workflow stays **Running**, paused at that point with the compliance approva
 intact. The Temporal UI shows the failing workflow task and its stack trace.
 Other conversations, and openings without the promo code, keep working.
 
-Turning the switch off doesn't help: the promo code is part of the workflow's
-input, so every retry hits the same line. The fix is code. Change
-`inputs.initial_deposit` to `inputs.initial_amount` and restart the worker. The
-workflow resumes on the server's next workflow-task retry and opens the account
-with the bonus. Workflow-task retries back off over time, up to 10 minutes; if the
-fix is deployed within a couple of minutes, the workflow resumes within about a minute.
+The buggy line only runs while the switch is on. The workflow reads the switch with a
+local activity (`workflow_bug_enabled`) right before it, and there are two ways to
+heal the paused workflow:
 
-After the demo, re-arm the bug:
+- **Turn the switch off.** A failed workflow task records nothing in the history, so
+  every retry of it reads the switch afresh. Once the switch is off, the retry records
+  "off" (a local-activity marker) and the workflow opens the account with the bonus.
+  Replays reuse the recorded answer, so turning the switch back on later can't cause a
+  non-determinism error. This is the way to show it on a hosted copy of the demo, where
+  nobody can change the worker's code.
+- **Fix the code.** Change `inputs.initial_deposit` to `inputs.initial_amount` and
+  restart the worker. After the demo, re-arm the bug with
+  `git checkout src/temporal_supervisor/workflows/open_account_workflow.py`.
 
-```bash
-git checkout src/temporal_supervisor/workflows/open_account_workflow.py
-```
+Either way the workflow resumes on the server's next workflow-task retry. Workflow-task
+retries back off over time, up to 10 minutes; if it is healed within a couple of
+minutes, the workflow resumes within about a minute.
 
 ### With the Java Open Account workflow
 

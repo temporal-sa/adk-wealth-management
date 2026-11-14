@@ -1,0 +1,12 @@
+.git
+.venv
+**/__pycache__
+**/node_modules
+src/frontend/build
+java/target
+java/build
+.sandbox-tmp
+.env
+setgeminikey.sh
+setcloudenv.sh
+setclaimcheck.sh

@@ -59,6 +59,7 @@ async def main():
             Investments.list_investments,
             Investments.validate_new_account,
             Investments.find_promotion,
+            Investments.workflow_bug_enabled,
             Investments.open_investment,
             Investments.remove_investment,
             Investments.close_investment,

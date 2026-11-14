@@ -16,20 +16,21 @@ npm install     # first time only
 npm start
 ```
 
-The app opens at http://localhost:3000. It expects the API at `http://127.0.0.1:8000`, set by `API_BASE_URL`
-in `src/frontend/src/config.js`. The API's CORS settings allow port 3000 (`localhost` and `127.0.0.1`).
+The app opens at http://localhost:3000. It calls the API at `/api` on its own origin (`API_BASE_URL` in
+`src/frontend/src/config.js`, or `REACT_APP_API_BASE_URL` at build time); the dev server proxies those calls to the
+API at `http://127.0.0.1:8000` (`proxy` in `package.json`). In the container image the API serves the built app.
 
 ## Using it
 
-* **Start Chat** starts a new chat workflow. Each chat gets a random workflow ID with the prefix
-  `adk-temporal-agent-` (set in `src/App.js`), so you can run several chats, for example in different tabs.
-  **End Chat** ends it.
+* **Start Chat** starts a new chat workflow. The API picks its workflow ID, tied to your browser's session cookie,
+  so you can run several chats, for example in different tabs. **End Chat** ends it.
 * The app polls the API for new messages (every 2 seconds while waiting for a reply, otherwise every 5 seconds).
   Status updates from an account opening appear in the status area above the chat.
 * **Chaos** in the header opens the chaos panel, which turns failure scenarios on and off and lists the
   failures they cause. See [Failure Scenarios](../temporal_supervisor/README.md#failure-scenarios-chaos-panel).
 
-If you are opening a new investment account, send the compliance approval from another terminal:
+If you are opening a new investment account, approve its compliance review with the **Approve compliance review**
+button that appears in the status area while the opening waits for it, or send the approval from another terminal:
 
 ```bash
 cd src/temporal_supervisor

@@ -29,12 +29,15 @@ with workflow.unsafe.imports_passed_through():
     from temporalio.google_adk import TemporalModel
     from temporal_supervisor.activities.activity_tool import _activity_tool
     from temporal_supervisor.retry_policies import LLM_RETRY_POLICY, TOOL_RETRY_POLICY
-    from temporal_supervisor.task_queues import LLM_TASK_QUEUE
+    from temporal_supervisor.task_queues import GEMINI_MODEL, LLM_TASK_QUEUE
     from temporalio.exceptions import is_cancelled_exception
 
 
-MODEL = "gemini-2.5-flash"
+MODEL = GEMINI_MODEL
 APP_NAME = "wealth-management"
+# A chat with no customer message and no account-opening status update for this long ends
+# by itself, so chats abandoned without End Chat don't run forever.
+CHAT_IDLE_TIMEOUT = timedelta(hours=1)
 # Sent when the model ends a turn with no text and no tool call, which Gemini occasionally does
 EMPTY_RESPONSE_NUDGE = "Please continue, following your instructions."
 EMPTY_RESPONSE_FALLBACK = "Sorry, I didn't catch that. Could you please say it again?"
@@ -369,13 +372,20 @@ class WealthManagementWorkflow:
         )
 
         while True:
-            await workflow.wait_condition(
-                lambda: (
-                    not self.pending_chat_messages.empty()
-                    or not self.pending_status_updates.empty()
-                    or self.end_workflow_flag
+            try:
+                await workflow.wait_condition(
+                    lambda: (
+                        not self.pending_chat_messages.empty()
+                        or not self.pending_status_updates.empty()
+                        or self.end_workflow_flag
+                    ),
+                    timeout=CHAT_IDLE_TIMEOUT,
                 )
-            )
+            except asyncio.TimeoutError:
+                # Nobody has used this chat for a while (e.g. the browser tab was closed
+                # without End Chat): end it rather than keep it open forever.
+                workflow.logger.info(f"Ending chat {self.wf_id}: idle for {CHAT_IDLE_TIMEOUT}")
+                return
 
             if self.end_workflow_flag:
                 return
@@ -508,6 +518,11 @@ class WealthManagementWorkflow:
     @workflow.query
     def get_chat_history(self) -> list[ChatInteraction]:
         return self.chat_history
+
+    @workflow.query
+    def get_account_opening_states(self) -> dict[str, str]:
+        """The latest state of each account opening (child workflow ID -> state)."""
+        return self.account_opening_states
 
     @workflow.signal
     async def end_workflow(self):

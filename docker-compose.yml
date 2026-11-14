@@ -1,0 +1,43 @@
+# Run the whole demo locally as it runs when hosted: a Temporal dev server, Redis with a
+# password, the worker and the web app (API + UI) at http://localhost:8000.
+#
+#   echo 'GEMINI_API_KEY=...' > .env   # once; .env is gitignored and read by every compose command
+#   docker compose up --build
+#
+# Each browser session gets its own sample data and chaos switches (DEMO_DATA_STORE=redis).
+# USE_CLAIM_CHECK=true (in .env or the shell) keeps payloads in Redis and puts only their IDs in
+# Temporal; the web app decodes them at http://localhost:8000/codec for the UI at http://localhost:8233.
+services:
+  temporal:
+    image: temporalio/temporal:latest
+    command: ["server", "start-dev", "--ip", "0.0.0.0", "--ui-ip", "0.0.0.0"]
+    ports:
+      - "7233:7233"
+      - "8233:8233"
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "localdev"]
+
+  worker:
+    build: .
+    command: ["python", "src/temporal_supervisor/run_worker.py"]
+    environment: &app-env
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: default
+      TEMPORAL_TASK_QUEUE: wealth-management
+      REDIS_URL: redis://:localdev@redis:6379/0
+      DEMO_DATA_STORE: redis
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?set GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      USE_CLAIM_CHECK: ${USE_CLAIM_CHECK:-false}
+    depends_on: [temporal, redis]
+    restart: on-failure
+
+  web:
+    build: .
+    environment: *app-env
+    ports:
+      - "8000:8000"
+    depends_on: [temporal, redis]
+    restart: on-failure
