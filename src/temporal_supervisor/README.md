@@ -229,8 +229,9 @@ npm install     # first time only
 npm start
 ```
 
-A new browser window opens where you can interact with the application. The UI expects the API
-at `http://127.0.0.1:8000` (set in `src/frontend/src/config.js`). See [the API README](../api/README.md)
+A new browser window opens at http://localhost:3000 where you can interact with the application. The UI calls
+the API at `/api`, which the React dev server proxies to `http://127.0.0.1:8000` (`"proxy"` in
+`src/frontend/package.json`). See [the API README](../api/README.md)
 and [the frontend README](../frontend/README.md) for details.
 
 If you are opening a new investment account, in another terminal

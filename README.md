@@ -67,12 +67,18 @@ export GEMINI_API_KEY="Your API Key Goes Here"
 and the web app with its API, all from the one `Dockerfile`.
 
 ```bash
-GEMINI_API_KEY="Your API Key Goes Here" docker compose up --build
+echo 'GEMINI_API_KEY=Your API Key Goes Here' > .env   # once; .env is gitignored
+docker compose up --build
 ```
 
+Compose reads `.env` for every command (`up`, `logs`, `down`), so the key needn't be exported in each shell.
 Open http://localhost:8000 for the chat and http://localhost:8233 for the Temporal UI. Each browser session gets
 its own copy of the demo data and its own chaos switches, kept in Redis (`DEMO_DATA_STORE=redis`), so nothing in
 `data/` changes.
+
+To try the claim check, add `USE_CLAIM_CHECK=true` to `.env` and run `docker compose up` again: payloads are kept in
+Redis and Temporal only sees their IDs. To read them in the Temporal UI, set its codec endpoint (the glasses icon) to
+`http://localhost:8000/codec` and open the UI at exactly `http://localhost:8233`.
 
 ## Resetting the Demo Data
 

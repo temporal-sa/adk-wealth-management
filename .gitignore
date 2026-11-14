@@ -13,6 +13,7 @@ wheels/
 /setgeminikey.sh
 /setcloudenv.sh
 /setclaimcheck.sh
+/.env
 .idea
 .DS_Store
 dump.rdb
