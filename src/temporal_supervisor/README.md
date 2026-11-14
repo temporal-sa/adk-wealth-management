@@ -451,18 +451,23 @@ the workflow stays **Running**, paused at that point with the compliance approva
 intact. The Temporal UI shows the failing workflow task and its stack trace.
 Other conversations, and openings without the promo code, keep working.
 
-Turning the switch off doesn't help: the promo code is part of the workflow's
-input, so every retry hits the same line. The fix is code. Change
-`inputs.initial_deposit` to `inputs.initial_amount` and restart the worker. The
-workflow resumes on the server's next workflow-task retry and opens the account
-with the bonus. Workflow-task retries back off over time, up to 10 minutes; if the
-fix is deployed within a couple of minutes, the workflow resumes within about a minute.
+The buggy line only runs while the switch is on. The workflow reads the switch with a
+local activity (`workflow_bug_enabled`) right before it, and there are two ways to
+heal the paused workflow:
 
-After the demo, re-arm the bug:
+- **Turn the switch off.** A failed workflow task records nothing in the history, so
+  every retry of it reads the switch afresh. Once the switch is off, the retry records
+  "off" (a local-activity marker) and the workflow opens the account with the bonus.
+  Replays reuse the recorded answer, so turning the switch back on later can't cause a
+  non-determinism error. This is the way to show it on a hosted copy of the demo, where
+  nobody can change the worker's code.
+- **Fix the code.** Change `inputs.initial_deposit` to `inputs.initial_amount` and
+  restart the worker. After the demo, re-arm the bug with
+  `git checkout src/temporal_supervisor/workflows/open_account_workflow.py`.
 
-```bash
-git checkout src/temporal_supervisor/workflows/open_account_workflow.py
-```
+Either way the workflow resumes on the server's next workflow-task retry. Workflow-task
+retries back off over time, up to 10 minutes; if it is healed within a couple of
+minutes, the workflow resumes within about a minute.
 
 ### With the Java Open Account workflow
 

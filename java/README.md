@@ -101,7 +101,9 @@ The chaos panel's **Bug in workflow code** switch gives new account openings the
 unboxing it throws a `NullPointerException` right after compliance approval. The exception fails the workflow
 task, not the workflow, so the workflow stays **Running**, paused at that line with its state intact. To fix it,
 use the commented-out `BONUS_RATES` line above it and restart the Java worker; the workflow resumes on the next
-workflow-task retry and opens the account with the bonus. Re-arm the bug afterwards, from the repository root:
+workflow-task retry and opens the account with the bonus. Unlike the Python workflow, the Java one doesn't read the
+switch again, so turning the switch off doesn't heal openings already paused here; only the code fix does. Re-arm
+the bug afterwards, from the repository root:
 
 ```bash
 git checkout java/src/main/java/io/temporal/demo/wealthmanagement/workflow/OpenInvestmentAccountWorkflowImpl.java

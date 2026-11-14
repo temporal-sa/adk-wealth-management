@@ -57,6 +57,16 @@ class Investments:
 
     @staticmethod
     @activity.defn
+    async def workflow_bug_enabled() -> bool:
+        """Whether this session's "Bug in workflow code" switch is on right now.
+
+        OpenInvestmentAccountWorkflow runs it as a local activity just before the
+        welcome-bonus code, so turning the switch off heals stuck openings.
+        """
+        return await is_enabled(ChaosFlag.WORKFLOW_BUG)
+
+    @staticmethod
+    @activity.defn
     async def open_investment(new_account: InvestmentAccount) -> dict:
         activity.logger.info(
             f"Opening investment account for {new_account.client_id}, "

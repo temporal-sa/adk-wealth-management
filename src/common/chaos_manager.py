@@ -55,8 +55,8 @@ CHAOS_FLAGS: List[ChaosFlagInfo] = [
         ChaosFlag.WORKFLOW_BUG,
         "Bug in workflow code",
         "New account openings get a welcome-bonus promo code, and the workflow's promo code path has a bug. "
-        "It pauses after compliance approval until you fix the code and restart the worker. "
-        "Turning this off does not unstick openings that already have the promo code.",
+        "It pauses after compliance approval, keeping all its state. "
+        "Turn this off and the paused openings heal themselves on their next workflow task retry.",
     ),
 ]
 

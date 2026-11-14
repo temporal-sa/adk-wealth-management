@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Optional
 
 from temporalio import workflow
+from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
@@ -78,7 +79,7 @@ class OpenInvestmentAccountWorkflow:
         Transient failures never get here: activities retry until they succeed.
         """
         amount = inputs.initial_amount
-        bonus = self._welcome_bonus(inputs) if inputs.promo_code else 0.0
+        bonus = await self._welcome_bonus(inputs) if inputs.promo_code else 0.0
         # Idempotency key: stable across activity retries and worker restarts. The
         # workflow ID is already unique per account opening; the run ID also keeps it
         # unique if a workflow ID is ever reused (e.g. a workflow started by hand).
@@ -118,16 +119,39 @@ class OpenInvestmentAccountWorkflow:
         await self._set_state("Complete")
         return OpenInvestmentAccountOutput(account_created=True, message="investment account created")
 
-    @staticmethod
-    def _welcome_bonus(inputs: OpenInvestmentAccountInput) -> float:
+    async def _welcome_bonus(self, inputs: OpenInvestmentAccountInput) -> float:
         """Welcome-bonus promotion: 1% of the initial deposit, up to $500."""
-        # *** Bug-In-Workflow-Code ***
-        # Intentional bug for the "Bug in workflow code" demo: OpenInvestmentAccountInput has no
-        # initial_deposit field (it's initial_amount), so the line below raises an AttributeError.
-        # To fix it, uncomment the first line below and comment out the second.
-        # See README "Failure Scenarios".
-        # return min(inputs.initial_amount * 0.01, 500.0)
-        return min(inputs.initial_deposit * 0.01, 500.0)
+        if await self._workflow_bug_switch_on():
+            # *** Bug-In-Workflow-Code ***
+            # Intentional bug for the "Bug in workflow code" demo: OpenInvestmentAccountInput has no
+            # initial_deposit field (it's initial_amount), so the line below raises an AttributeError.
+            # To heal it, turn the switch off in the chaos panel, or fix the line (initial_amount)
+            # and restart the worker. See README "Failure Scenarios".
+            return min(inputs.initial_deposit * 0.01, 500.0)
+        return min(inputs.initial_amount * 0.01, 500.0)
+
+    async def _workflow_bug_switch_on(self) -> bool:
+        """Whether the chaos panel's "Bug in workflow code" switch is on, read deterministically.
+
+        The switch is read with a local activity, so its answer is recorded in the history and
+        a replay reuses it instead of reading the switch again: no non-determinism, whatever
+        the switch says later. While the switch is on, the buggy line fails the workflow task,
+        and a failed workflow task records nothing, so every retry of it reads the switch
+        afresh. Once the switch is off, the retry records "off" and the opening carries on:
+        the workflow heals itself, keeping all its state.
+
+        If the switch can't be read (for example on a worker without this activity), the
+        bug stays on, so the only way past it is to fix the code.
+        """
+        try:
+            return await workflow.execute_local_activity(
+                Investments.workflow_bug_enabled,
+                start_to_close_timeout=timedelta(seconds=5),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except (ActivityError, ValueError):
+            # ValueError: the worker doesn't register the activity
+            return True
 
     async def _execute(self, activity_fn, *args):
         return await workflow.execute_activity(
