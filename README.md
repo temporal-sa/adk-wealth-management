@@ -1,3 +1,11 @@
+> [!IMPORTANT]
+> **This repository is no longer maintained.** The Google ADK (Python) version of the Wealth Management demo now lives in
+> [temporal-sa/wealth-management-demo](https://github.com/temporal-sa/wealth-management-demo), under
+> [`src/python/google_adk`](https://github.com/temporal-sa/wealth-management-demo/tree/main/src/python/google_adk). There it sits
+> alongside the same demo in twelve other agent frameworks across Python, TypeScript, Go, Java and .NET, with one shared
+> web UI and new features such as a chaos panel for injecting failures. New work, fixes and SDK upgrades happen there;
+> this repository is kept as it is for reference.
+
 # Wealth Management Agent Example using Google ADK
 Demonstrates how to use [Google ADK](https://adk.dev/) using subagents and instructions to delegate to other agents. 
 Shows an example of just using the Google ADK and another version that leverages [Temporal](https://temporal.io) to 
